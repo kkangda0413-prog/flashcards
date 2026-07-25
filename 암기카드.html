@@ -9,6 +9,8 @@
   v1.3.1 (2026-07-26) — 실제 Firebase 프로젝트(flashcards-1c668) 설정값 반영, 로그인 게이트 활성화
   v1.4.0 (2026-07-26) — 카드 정렬 순서(order) 도입: 학습 순서가 마인드맵 순서와 항상 동일하게 맞춰지고,
     마인드맵에서 카드 옆 ▲▼ 버튼으로 순서를 직접 바꿀 수 있음
+  v1.5.0 (2026-07-26) — 카테고리도 알파벳순이 아닌 입력한 순서대로 정렬되도록 수정.
+    마인드맵의 ▲▼ 버튼을 드래그 핸들(⠿)로 교체하여 카드/카테고리를 원하는 위치로 직접 드래그해서 옮길 수 있음
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -275,7 +277,7 @@
   .mm-branch { margin: 3px 0; }
   .mm-children { margin-left: 16px; padding-left: 14px; border-left: 2px solid var(--border); }
   .mm-cat-row {
-    display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
   }
   .mm-cat-row:hover { background: var(--surface-2); }
   .mm-cat-name { font-weight: 700; color: var(--accent); font-family: var(--font-serif); }
@@ -287,14 +289,19 @@
   .mm-card-dot.st-△ { background: var(--amber); opacity: 1; }
   .mm-card-dot.st-X { background: var(--red); opacity: 1; }
   .mm-card-title { flex: 1; line-height: 1.55; word-break: break-word; }
-  .mm-card-order-btns { display: none; gap: 2px; flex: none; }
-  .mm-card-row:hover .mm-card-order-btns { display: flex; }
+  .mm-drag-handle, .mm-drag-spacer {
+    flex: none; width: 16px; text-align: center; color: var(--ink-faint); font-size: 0.9rem;
+    cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.1s ease;
+  }
+  .mm-cat-row:hover .mm-drag-handle, .mm-card-row:hover .mm-drag-handle { opacity: 1; }
+  .mm-drag-handle:active { cursor: grabbing; }
+  .mm-branch.mm-dragging, .mm-card-row.mm-dragging { opacity: 0.5; background: var(--accent-soft); }
 
   @media print {
     body * { visibility: hidden; }
     #mindmapPrintArea, #mindmapPrintArea * { visibility: visible; }
     #mindmapPrintArea { position: absolute; top: 0; left: 0; width: 100%; box-shadow: none; border: none; padding: 0; }
-    .mm-card-order-btns { display: none !important; }
+    .mm-drag-handle, .mm-drag-spacer { display: none !important; }
     .mm-print-header { display: block; font-family: var(--font-serif); font-size: 1.1rem; font-weight: 700; margin-bottom: 14px; }
     .mm-cat-row, .mm-card-row { cursor: default; }
   }
@@ -373,7 +380,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -418,8 +425,9 @@ function renderAnswerHtml(text){
 function statusText(s){ return s === "O" ? "완벽" : s === "△" ? "애매" : s === "X" ? "다시" : "미채점"; }
 
 // ---------- category helpers ----------
+function categorySortKey(cat){ return cat.order != null ? cat.order : (cat.createdAt || 0); }
 function children(parentId){
-  return db.categories.filter(c => c.parentId === parentId).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+  return db.categories.filter(c => c.parentId === parentId).sort((a,b) => categorySortKey(a) - categorySortKey(b));
 }
 function categoryById(id){ return db.categories.find(c => c.id === id); }
 function descendantIds(catId){
@@ -449,17 +457,12 @@ function cardSortKey(card){ return card.order != null ? card.order : (card.creat
 function cardsInCategorySorted(catId){
   return db.cards.filter(c => c.categoryId === catId).sort((a,b) => cardSortKey(a) - cardSortKey(b));
 }
-function moveCardOrder(cardId, direction){
-  const card = db.cards.find(c => c.id === cardId);
-  if (!card) return;
-  const siblings = cardsInCategorySorted(card.categoryId);
-  const idx = siblings.findIndex(c => c.id === cardId);
-  const swapIdx = idx + direction;
-  if (idx === -1 || swapIdx < 0 || swapIdx >= siblings.length) return;
-  const other = siblings[swapIdx];
-  if (card.order == null) card.order = cardSortKey(card);
-  if (other.order == null) other.order = cardSortKey(other);
-  const tmp = card.order; card.order = other.order; other.order = tmp;
+function reorderSiblings(type, orderedIds){
+  orderedIds.forEach((id, i) => {
+    if (!id) return;
+    const item = type === "card" ? db.cards.find(c => c.id === id) : categoryById(id);
+    if (item) item.order = i;
+  });
   saveDB();
 }
 function statusCounts(arr){
@@ -684,7 +687,7 @@ function renderSidebar(){
     const name = (inp.value || "").trim();
     if (!name) return;
     const parentId = b.dataset.confirmadd === "root" ? null : b.dataset.confirmadd;
-    const newCat = { id: uid("cat"), name, parentId };
+    const newCat = { id: uid("cat"), name, parentId, createdAt: Date.now() };
     db.categories.push(newCat);
     saveDB();
     addingSubcatFor = null;
@@ -957,7 +960,7 @@ function renderManage(){
     const name = (inp.value || "").trim();
     if (!name) return;
     const parentId = formDraft.categoryId || null;
-    const newCat = { id: uid("cat"), name, parentId };
+    const newCat = { id: uid("cat"), name, parentId, createdAt: Date.now() };
     db.categories.push(newCat);
     saveDB();
     formDraft.categoryId = newCat.id;
@@ -1070,11 +1073,7 @@ function renderDash(){
 
 // ---------- mindmap (outline) view ----------
 function cardKidsFor(catId){
-  const cardsHere = cardsInCategorySorted(catId);
-  return cardsHere.map((c, i) => ({
-    type: "card", id: c.id, name: c.title, status: c.status,
-    siblingIndex: i, siblingCount: cardsHere.length, children: [],
-  }));
+  return cardsInCategorySorted(catId).map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
 }
 function buildMindmapTree(){
   function catNode(cat){
@@ -1097,9 +1096,14 @@ function mmOutlineHtml(node){
     return node.children.map(mmOutlineHtml).join("");
   }
   if (node.type === "category") {
+    const dragId = node.id === null ? "" : node.id;
+    const handle = node.id !== null
+      ? `<span class="mm-drag-handle" title="드래그해서 순서 변경">⠿</span>`
+      : `<span class="mm-drag-spacer"></span>`;
     return `
-      <div class="mm-branch">
-        <div class="mm-cat-row" data-catid="${node.id===null ? "" : node.id}">
+      <div class="mm-branch" data-dragid="${dragId}">
+        <div class="mm-cat-row" data-catid="${dragId}">
+          ${handle}
           <span class="mm-cat-name">${escapeHtml(node.name)}</span>
           <span class="mm-cat-count">${countCardsInNode(node)}장</span>
         </div>
@@ -1108,18 +1112,47 @@ function mmOutlineHtml(node){
     `;
   }
   const stCls = node.status ? `st-${node.status}` : "st-none";
-  const canUp = node.siblingIndex > 0;
-  const canDown = node.siblingIndex < node.siblingCount - 1;
   return `
-    <div class="mm-card-row ${stCls}" data-cardid="${node.id}">
+    <div class="mm-card-row ${stCls}" data-cardid="${node.id}" data-dragid="${node.id}">
+      <span class="mm-drag-handle" title="드래그해서 순서 변경">⠿</span>
       <span class="mm-card-dot ${stCls}"></span>
       <span class="mm-card-title">${escapeHtml(node.name)}</span>
-      <span class="mm-card-order-btns">
-        <button class="icon-btn" data-moveup="${node.id}" title="위로 이동" ${canUp ? "" : "disabled"}>▲</button>
-        <button class="icon-btn" data-movedown="${node.id}" title="아래로 이동" ${canDown ? "" : "disabled"}>▼</button>
-      </span>
     </div>
   `;
+}
+function startSortableDrag(e, item, siblingSelector, onDrop){
+  e.preventDefault();
+  e.stopPropagation();
+  const parent = item.parentElement;
+  const pointerId = e.pointerId;
+  const getSiblings = () => Array.from(parent.children).filter(el => el.matches(siblingSelector));
+  item.classList.add("mm-dragging");
+  try { item.setPointerCapture(pointerId); } catch(err) {}
+
+  function onMove(ev){
+    const y = ev.clientY;
+    const siblings = getSiblings();
+    for (const sib of siblings) {
+      if (sib === item) continue;
+      const rect = sib.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const itemIsAfter = !!(sib.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (y < mid && itemIsAfter) { parent.insertBefore(item, sib); break; }
+      if (y > mid && !itemIsAfter) { parent.insertBefore(item, sib.nextSibling); break; }
+    }
+  }
+  function onUp(){
+    item.removeEventListener("pointermove", onMove);
+    item.removeEventListener("pointerup", onUp);
+    item.removeEventListener("pointercancel", onUp);
+    item.classList.remove("mm-dragging");
+    try { item.releasePointerCapture(pointerId); } catch(err) {}
+    const orderedIds = getSiblings().map(el => el.dataset.dragid);
+    onDrop(orderedIds);
+  }
+  item.addEventListener("pointermove", onMove);
+  item.addEventListener("pointerup", onUp);
+  item.addEventListener("pointercancel", onUp);
 }
 function renderMindmap(){
   const view = document.getElementById("mindmapView");
@@ -1148,14 +1181,23 @@ function renderMindmap(){
   `;
 
   view.querySelectorAll(".mm-cat-row").forEach(row => {
-    row.onclick = () => {
+    row.onclick = (e) => {
+      if (e.target.closest(".mm-drag-handle")) return;
       selectedCatId = row.dataset.catid || null;
       currentTab = "manage";
       render();
     };
+    const handle = row.querySelector(".mm-drag-handle");
+    if (handle) handle.addEventListener("pointerdown", (e) => {
+      startSortableDrag(e, row.parentElement, ".mm-branch", (orderedIds) => {
+        reorderSiblings("category", orderedIds);
+        renderMindmap();
+      });
+    });
   });
   view.querySelectorAll(".mm-card-row").forEach(row => {
-    row.onclick = () => {
+    row.onclick = (e) => {
+      if (e.target.closest(".mm-drag-handle")) return;
       const cardId = row.dataset.cardid;
       const card = db.cards.find(c => c.id === cardId);
       const catId = card ? card.categoryId : null;
@@ -1169,17 +1211,13 @@ function renderMindmap(){
       currentTab = "study";
       render();
     };
-  });
-
-  view.querySelectorAll("[data-moveup]").forEach(b => b.onclick = (e) => {
-    e.stopPropagation();
-    moveCardOrder(b.dataset.moveup, -1);
-    renderMindmap();
-  });
-  view.querySelectorAll("[data-movedown]").forEach(b => b.onclick = (e) => {
-    e.stopPropagation();
-    moveCardOrder(b.dataset.movedown, 1);
-    renderMindmap();
+    const handle = row.querySelector(".mm-drag-handle");
+    if (handle) handle.addEventListener("pointerdown", (e) => {
+      startSortableDrag(e, row, ".mm-card-row", (orderedIds) => {
+        reorderSiblings("card", orderedIds);
+        renderMindmap();
+      });
+    });
   });
 
   document.getElementById("mmPdfBtn").onclick = () => { window.print(); };
