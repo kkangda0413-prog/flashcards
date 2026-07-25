@@ -1,3 +1,9 @@
+<!--
+  CHANGELOG — 되돌리려면: 이 폴더에서 `git log --oneline` 으로 버전 확인 후
+  `git checkout <커밋해시> -- 암기카드.html` 실행 (그 다음 새로 저장하면 됨)
+  v1.0 (2026-07-25) — 최초 버전: 카드/카테고리 CRUD, 계층 카테고리, 학습·자가채점(X/△/○), 필터, 전체 현황 대시보드
+  v1.1 (2026-07-26) — 마인드맵 보기 추가, 학습 시 복수 카테고리 선택 + 셔플(랜덤 순서) 기능 추가, 버전 표시 시작
+-->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
   :root {
@@ -236,6 +242,42 @@
   .dash-tile.dash-X { background: var(--red); color: #fff; border-color: var(--red); }
 
   @media (prefers-reduced-motion: no-preference) { .card { transition: box-shadow 0.15s ease; } }
+
+  .scope-panel { margin-bottom: 14px; }
+  .scope-toggle {
+    width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+    cursor: pointer; font-size: 0.85rem; color: var(--ink); box-shadow: 0 1px 3px var(--shadow); text-align: left;
+  }
+  .scope-toggle:hover { background: var(--surface-2); }
+  .scope-toggle .chev { color: var(--ink-faint); flex: none; }
+  .scope-body { margin-top: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .scope-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+  .scope-shuffle { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer; margin-left: auto; }
+  .scope-tree { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .scope-check-row { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+  .scope-check-row:hover { background: var(--surface-2); }
+  .scope-check-row input { flex: none; }
+  .scope-check-row.uncat { border-bottom: 1px dashed var(--border); margin-bottom: 3px; padding-bottom: 7px; }
+
+  .mindmap-wrap { overflow: auto; max-height: 74vh; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 2px 10px var(--shadow); padding: 16px; }
+  .mm-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+  .mm-node-box { fill: var(--surface-2); stroke: var(--border); }
+  .mm-node-text { font-family: var(--font-sans); font-size: 12px; fill: var(--ink); dominant-baseline: middle; }
+  .mm-root-box { fill: var(--accent); stroke: var(--accent); }
+  .mm-root-text { fill: var(--surface); font-weight: 700; }
+  .mm-cat-box { fill: var(--accent-soft); stroke: var(--accent); cursor: pointer; }
+  .mm-cat-text { fill: var(--accent); font-weight: 700; cursor: pointer; }
+  .mm-card-pill { cursor: pointer; stroke-width: 1; }
+  .mm-card-pill.st-O { fill: var(--green); stroke: var(--green); }
+  .mm-card-pill.st-△ { fill: var(--amber); stroke: var(--amber); }
+  .mm-card-pill.st-X { fill: var(--red); stroke: var(--red); }
+  .mm-card-pill.st-none { fill: var(--surface); stroke: var(--border); }
+  .mm-card-text { font-size: 11.5px; cursor: pointer; }
+  .mm-card-text.st-O, .mm-card-text.st-△, .mm-card-text.st-X { fill: #fff; }
+  .mm-card-text.st-none { fill: var(--ink-soft); }
+
+  .version-tag { text-align: center; font-size: 0.7rem; color: var(--ink-faint); font-family: var(--font-mono); margin-top: 28px; }
 </style>
 
 <div class="app">
@@ -258,6 +300,7 @@
           <button id="tabStudy" class="active">학습</button>
           <button id="tabManage">카드 관리</button>
           <button id="tabDash">전체 현황</button>
+          <button id="tabMindmap">마인드맵</button>
         </div>
         <select class="filter" id="filterSelect">
           <option value="all">전체 보기</option>
@@ -271,12 +314,16 @@
       <div id="studyView"></div>
       <div id="manageView" style="display:none"></div>
       <div id="dashView" style="display:none"></div>
+      <div id="mindmapView" style="display:none"></div>
     </main>
   </div>
+  <div class="version-tag" id="versionTag"></div>
 </div>
 
 <script>
+const APP_VERSION = "1.1.0";
 const STORE_KEY = "diy-flashcards-v1";
+const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
 function loadDB(){
   try {
@@ -354,7 +401,7 @@ function buildCategoryOptionsHtml(selectedId){
 // ---------- state ----------
 let selectedCatId = null;   // null = 전체
 let currentFilter = "all";  // all | unrated | X | △ | O
-let currentTab = "study";   // study | manage | dash
+let currentTab = "study";   // study | manage | dash | mindmap
 let studyIndex = 0;
 let revealShown = {};       // runtime only, per card id
 let editingAnswerId = null; // study view inline answer edit
@@ -363,6 +410,102 @@ let addingSubcatFor = null; // sidebar: category id or "root"
 let editingCardId = null;   // manage form: editing existing card
 let showInlineNewCat = false;
 let formDraft = { title: "", categoryId: "", answer: "" };
+
+// ---------- study scope (다중 카테고리 선택 + 셔플) ----------
+function loadStudyScope(){
+  try {
+    const raw = localStorage.getItem(SCOPE_KEY);
+    if (!raw) return { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false };
+    const p = JSON.parse(raw);
+    return {
+      all: p.all !== false,
+      catIds: new Set(p.catIds || []),
+      includeUncategorized: p.includeUncategorized !== false,
+      shuffle: !!p.shuffle,
+    };
+  } catch(e) { return { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false }; }
+}
+function saveStudyScope(){
+  localStorage.setItem(SCOPE_KEY, JSON.stringify({
+    all: studyScope.all,
+    catIds: Array.from(studyScope.catIds),
+    includeUncategorized: studyScope.includeUncategorized,
+    shuffle: studyScope.shuffle,
+  }));
+}
+let studyScope = loadStudyScope();
+let shuffleOrder = null;   // runtime only: fixed random order while shuffle is on
+let scopePanelOpen = false;
+
+function materializeScopeIfAll(){
+  if (studyScope.all) {
+    studyScope.all = false;
+    studyScope.catIds = new Set(db.categories.map(c => c.id));
+    studyScope.includeUncategorized = true;
+  }
+}
+function focusStudyScopeOnCategory(catId){
+  // used by sidebar / dashboard / mindmap clicks to focus study on a single category
+  studyScope.all = (catId === null);
+  if (catId !== null) { studyScope.catIds = new Set([catId]); studyScope.includeUncategorized = false; }
+  else { studyScope.catIds = new Set(); studyScope.includeUncategorized = true; }
+  shuffleOrder = null;
+  saveStudyScope();
+}
+function resolvedStudyCategoryIds(){
+  if (studyScope.all) return db.categories.map(c => c.id);
+  return Array.from(studyScope.catIds).filter(id => categoryById(id));
+}
+function studyBaseCardIds(){
+  const selected = new Set();
+  resolvedStudyCategoryIds().forEach(id => descendantIds(id).forEach(d => selected.add(d)));
+  const ids = [];
+  allCategoriesFlatOrdered().forEach(o => {
+    if (selected.has(o.id)) {
+      db.cards.filter(c => c.categoryId === o.id).sort((a,b) => (a.createdAt||0) - (b.createdAt||0)).forEach(c => ids.push(c.id));
+    }
+  });
+  if (studyScope.all || studyScope.includeUncategorized) {
+    db.cards.filter(c => !c.categoryId).sort((a,b) => (a.createdAt||0) - (b.createdAt||0)).forEach(c => ids.push(c.id));
+  }
+  return ids;
+}
+function shuffleArray(arr){
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i+1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function currentStudyQueue(){
+  const baseIds = studyBaseCardIds();
+  const baseSet = new Set(baseIds);
+  let orderedIds;
+  if (studyScope.shuffle) {
+    if (!shuffleOrder) shuffleOrder = shuffleArray(baseIds);
+    orderedIds = shuffleOrder.filter(id => baseSet.has(id));
+    baseIds.forEach(id => { if (!orderedIds.includes(id)) orderedIds.push(id); });
+    shuffleOrder = orderedIds;
+  } else {
+    orderedIds = baseIds;
+    shuffleOrder = null;
+  }
+  const idToCard = new Map(db.cards.map(c => [c.id, c]));
+  return orderedIds.map(id => idToCard.get(id)).filter(Boolean).filter(c => matchesFilter(c, currentFilter));
+}
+function scopeSummaryText(){
+  const count = studyBaseCardIds().length;
+  let label;
+  if (studyScope.all) {
+    label = "전체";
+  } else {
+    const names = resolvedStudyCategoryIds().map(id => categoryById(id)?.name).filter(Boolean);
+    if (studyScope.includeUncategorized) names.push("미분류");
+    label = names.length ? names.join(", ") : "(선택 없음)";
+  }
+  return `${escapeHtml(label)} · ${count}장 · ${studyScope.shuffle ? "🔀 랜덤 순서" : "순서대로"}`;
+}
 
 // ---------- sidebar ----------
 function catRowsHtml(parentId, depth){
@@ -428,6 +571,7 @@ function renderSidebar(){
   document.getElementById("catAllRow").onclick = () => {
     selectedCatId = null; studyIndex = 0;
     if (!editingCardId) formDraft.categoryId = "";
+    focusStudyScopeOnCategory(null);
     render();
   };
 
@@ -436,6 +580,7 @@ function renderSidebar(){
       if (e.target.closest(".cat-actions") || e.target.tagName === "INPUT") return;
       selectedCatId = row.dataset.catid; studyIndex = 0;
       if (!editingCardId) formDraft.categoryId = selectedCatId;
+      focusStudyScopeOnCategory(selectedCatId);
       render();
     });
   });
@@ -489,18 +634,91 @@ function renderSidebar(){
 }
 
 // ---------- study view ----------
+function scopePanelHtml(){
+  const uncatChecked = studyScope.all || studyScope.includeUncategorized;
+  const rows = allCategoriesFlatOrdered().map(o => {
+    const checked = studyScope.all || studyScope.catIds.has(o.id);
+    const indent = o.depth * 16;
+    return `<label class="scope-check-row" style="padding-left:${indent}px"><input type="checkbox" class="scope-cat-check" data-catid="${o.id}" ${checked ? "checked" : ""}/> ${escapeHtml(o.name)}</label>`;
+  }).join("");
+  const hasUncat = db.cards.some(c => !c.categoryId);
+  return `
+    <div class="scope-panel">
+      <button class="scope-toggle" id="scopeToggleBtn">
+        <span>📚 학습 범위 — ${scopeSummaryText()}</span>
+        <span class="chev">${scopePanelOpen ? "▴" : "▾"}</span>
+      </button>
+      ${scopePanelOpen ? `
+      <div class="scope-body">
+        <div class="scope-actions">
+          <button class="btn ghost sm" id="scopeAllBtn">전체 선택</button>
+          <button class="btn ghost sm" id="scopeNoneBtn">전체 해제</button>
+          <label class="scope-shuffle"><input type="checkbox" id="scopeShuffleCheck" ${studyScope.shuffle ? "checked" : ""}/> 🔀 랜덤 순서</label>
+          ${studyScope.shuffle ? `<button class="btn ghost sm" id="scopeReshuffleBtn">다시 섞기</button>` : ""}
+        </div>
+        <div class="scope-tree">
+          ${hasUncat ? `<label class="scope-check-row uncat"><input type="checkbox" id="scopeUncatCheck" ${uncatChecked ? "checked" : ""}/> 미분류</label>` : ""}
+          ${rows || `<div class="sidebar-hint">아직 카테고리가 없습니다.</div>`}
+        </div>
+      </div>` : ""}
+    </div>
+  `;
+}
+function wireScopePanel(view){
+  document.getElementById("scopeToggleBtn").onclick = () => { scopePanelOpen = !scopePanelOpen; renderStudy(); };
+  const allBtn = document.getElementById("scopeAllBtn");
+  if (allBtn) allBtn.onclick = () => {
+    studyScope.all = true; studyScope.catIds = new Set(); studyScope.includeUncategorized = true;
+    if (studyScope.shuffle) shuffleOrder = shuffleArray(studyBaseCardIds());
+    saveStudyScope(); studyIndex = 0; renderStudy();
+  };
+  const noneBtn = document.getElementById("scopeNoneBtn");
+  if (noneBtn) noneBtn.onclick = () => {
+    studyScope.all = false; studyScope.catIds = new Set(); studyScope.includeUncategorized = false;
+    shuffleOrder = null;
+    saveStudyScope(); studyIndex = 0; renderStudy();
+  };
+  const shuffleCheck = document.getElementById("scopeShuffleCheck");
+  if (shuffleCheck) shuffleCheck.onchange = () => {
+    studyScope.shuffle = shuffleCheck.checked;
+    shuffleOrder = studyScope.shuffle ? shuffleArray(studyBaseCardIds()) : null;
+    saveStudyScope(); studyIndex = 0; renderStudy();
+  };
+  const reshuffleBtn = document.getElementById("scopeReshuffleBtn");
+  if (reshuffleBtn) reshuffleBtn.onclick = () => {
+    shuffleOrder = shuffleArray(studyBaseCardIds());
+    studyIndex = 0; renderStudy();
+  };
+  const uncatCheck = document.getElementById("scopeUncatCheck");
+  if (uncatCheck) uncatCheck.onchange = () => {
+    materializeScopeIfAll();
+    studyScope.includeUncategorized = uncatCheck.checked;
+    if (studyScope.shuffle) shuffleOrder = shuffleArray(studyBaseCardIds());
+    saveStudyScope(); studyIndex = 0; renderStudy();
+  };
+  view.querySelectorAll(".scope-cat-check").forEach(chk => {
+    chk.onchange = () => {
+      materializeScopeIfAll();
+      if (chk.checked) studyScope.catIds.add(chk.dataset.catid);
+      else studyScope.catIds.delete(chk.dataset.catid);
+      if (studyScope.shuffle) shuffleOrder = shuffleArray(studyBaseCardIds());
+      saveStudyScope(); studyIndex = 0; renderStudy();
+    };
+  });
+}
+
 function renderStudy(){
   const view = document.getElementById("studyView");
-  const list = cardsIn(selectedCatId).filter(c => matchesFilter(c, currentFilter));
+  const list = currentStudyQueue();
+  const scopeHtml = scopePanelHtml();
 
   if (!list.length) {
-    view.innerHTML = `
-      <div class="card empty-state">
-        <div class="big">📭</div>
-        ${db.cards.length === 0
-          ? `아직 만든 암기카드가 없습니다.<br>'카드 관리' 탭에서 첫 카드를 만들어보세요.`
-          : `이 카테고리·필터에 해당하는 카드가 없습니다.<br>사이드바나 필터를 바꿔보세요.`}
-      </div>`;
+    let msg;
+    if (db.cards.length === 0) msg = `아직 만든 암기카드가 없습니다.<br>'카드 관리' 탭에서 첫 카드를 만들어보세요.`;
+    else if (studyBaseCardIds().length === 0) msg = `선택한 학습 범위에 카드가 없습니다.<br>위에서 학습 범위를 다시 선택해보세요.`;
+    else msg = `이 필터에 해당하는 카드가 없습니다.<br>필터를 바꿔보세요.`;
+    view.innerHTML = scopeHtml + `<div class="card empty-state"><div class="big">📭</div>${msg}</div>`;
+    wireScopePanel(view);
     return;
   }
   if (studyIndex >= list.length) studyIndex = 0;
@@ -510,7 +728,7 @@ function renderStudy(){
   const editingAnswer = editingAnswerId === card.id;
   const breadcrumb = card.categoryId ? categoryPath(card.categoryId).join(" › ") : "미분류";
 
-  view.innerHTML = `
+  view.innerHTML = scopeHtml + `
     <div class="card">
       <div class="card-head">
         <div>
@@ -585,6 +803,8 @@ function renderStudy(){
 
   document.getElementById("studyPrevBtn").onclick = () => { studyIndex = (studyIndex - 1 + list.length) % list.length; renderStudy(); };
   document.getElementById("studyNextBtn").onclick = () => { studyIndex = (studyIndex + 1) % list.length; renderStudy(); };
+
+  wireScopePanel(view);
 }
 
 // ---------- manage view ----------
@@ -753,8 +973,143 @@ function renderDash(){
       const catId = btn.dataset.catid || null;
       const cardId = btn.dataset.cardid;
       selectedCatId = catId;
+      focusStudyScopeOnCategory(catId);
       currentFilter = "all";
-      const list = cardsIn(selectedCatId).filter(c => matchesFilter(c, currentFilter));
+      const list = currentStudyQueue();
+      const idx = list.findIndex(c => c.id === cardId);
+      studyIndex = idx >= 0 ? idx : 0;
+      revealShown[cardId] = true;
+      currentTab = "study";
+      render();
+    };
+  });
+}
+
+// ---------- mindmap view ----------
+function buildMindmapTree(){
+  function catNode(cat){
+    const kids = children(cat.id).map(catNode);
+    const cardKids = db.cards.filter(c => c.categoryId === cat.id)
+      .sort((a,b) => (a.createdAt||0) - (b.createdAt||0))
+      .map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
+    return { type: "category", id: cat.id, name: cat.name, children: [...kids, ...cardKids] };
+  }
+  const topCats = children(null).map(catNode);
+  const uncatCards = db.cards.filter(c => !c.categoryId)
+    .sort((a,b) => (a.createdAt||0) - (b.createdAt||0))
+    .map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
+  const rootChildren = [...topCats];
+  if (uncatCards.length) rootChildren.push({ type: "category", id: null, name: "미분류", children: uncatCards });
+  return { type: "root", id: null, name: "전체", children: rootChildren };
+}
+function mmNodeWidth(node){
+  if (node.type === "root") return 80;
+  if (node.type === "category") return 150;
+  return 180;
+}
+function mmTruncate(name, node){
+  const limit = node.type === "root" ? 6 : node.type === "category" ? 11 : 14;
+  return name.length > limit ? name.slice(0, limit-1) + "…" : name;
+}
+const MM_ROW_H = 30, MM_COL_W = 210, MM_PAD = 30;
+function layoutMindmap(root){
+  let y = 0;
+  function walk(node, depth){
+    node.depth = depth;
+    node.x = depth * MM_COL_W;
+    if (!node.children.length) {
+      node.y = y; y += MM_ROW_H;
+    } else {
+      node.children.forEach(ch => walk(ch, depth+1));
+      const first = node.children[0], last = node.children[node.children.length-1];
+      node.y = (first.y + last.y) / 2;
+    }
+  }
+  walk(root, 0);
+  let maxDepth = 0;
+  (function findMax(node){ maxDepth = Math.max(maxDepth, node.depth); node.children.forEach(findMax); })(root);
+  return { height: Math.max(y, MM_ROW_H), maxDepth };
+}
+function flattenMindmap(node, out){
+  out.push(node);
+  node.children.forEach(ch => flattenMindmap(ch, out));
+  return out;
+}
+function renderMindmap(){
+  const view = document.getElementById("mindmapView");
+  if (!db.categories.length && !db.cards.length) {
+    view.innerHTML = `<div class="card empty-state"><div class="big">🧠</div>카테고리와 카드를 만들면 이곳에 마인드맵이 표시됩니다.</div>`;
+    return;
+  }
+  const root = buildMindmapTree();
+  const { height, maxDepth } = layoutMindmap(root);
+  const nodes = flattenMindmap(root, []);
+  const svgW = (maxDepth+1) * MM_COL_W + MM_PAD*2;
+  const svgH = height + MM_PAD*2;
+
+  const edgesSvg = [];
+  const nodesSvg = [];
+
+  nodes.forEach(node => {
+    const x1 = node.x + MM_PAD + mmNodeWidth(node), y1 = node.y + MM_PAD;
+    node.children.forEach(ch => {
+      const x2 = ch.x + MM_PAD - 4, y2 = ch.y + MM_PAD;
+      const mx = (x1 + x2) / 2;
+      edgesSvg.push(`<path class="mm-edge" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"></path>`);
+    });
+  });
+
+  nodes.forEach(node => {
+    const cx = node.x + MM_PAD, cy = node.y + MM_PAD;
+    const label = mmTruncate(node.name, node);
+    if (node.type === "root") {
+      nodesSvg.push(`
+        <rect class="mm-node-box mm-root-box" x="${cx}" y="${cy-14}" width="80" height="28" rx="14"></rect>
+        <text class="mm-node-text mm-root-text" x="${cx+40}" y="${cy+1}" text-anchor="middle">${escapeHtml(label)}</text>
+      `);
+    } else if (node.type === "category") {
+      nodesSvg.push(`
+        <g class="mm-cat-group" data-catid="${node.id===null ? "" : node.id}">
+          <rect class="mm-node-box mm-cat-box" x="${cx}" y="${cy-13}" width="150" height="26" rx="8"><title>${escapeAttr(node.name)}</title></rect>
+          <text class="mm-node-text mm-cat-text" x="${cx+12}" y="${cy+1}">${escapeHtml(label)}</text>
+        </g>
+      `);
+    } else {
+      const stCls = node.status ? `st-${node.status}` : "st-none";
+      nodesSvg.push(`
+        <g class="mm-card-group" data-cardid="${node.id}">
+          <rect class="mm-node-box mm-card-pill ${stCls}" x="${cx}" y="${cy-12}" width="180" height="24" rx="12"><title>${escapeAttr(node.name)}</title></rect>
+          <text class="mm-node-text mm-card-text ${stCls}" x="${cx+12}" y="${cy+1}">${escapeHtml(label)}</text>
+        </g>
+      `);
+    }
+  });
+
+  view.innerHTML = `
+    <div class="mindmap-wrap">
+      <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
+        ${edgesSvg.join("")}
+        ${nodesSvg.join("")}
+      </svg>
+    </div>
+  `;
+
+  view.querySelectorAll(".mm-cat-group").forEach(g => {
+    g.onclick = () => {
+      selectedCatId = g.dataset.catid || null;
+      currentTab = "manage";
+      render();
+    };
+  });
+  view.querySelectorAll(".mm-card-group").forEach(g => {
+    g.onclick = () => {
+      const cardId = g.dataset.cardid;
+      const card = db.cards.find(c => c.id === cardId);
+      const catId = card ? card.categoryId : null;
+      selectedCatId = catId;
+      focusStudyScopeOnCategory(catId);
+      currentFilter = "all";
+      const list = currentStudyQueue();
       const idx = list.findIndex(c => c.id === cardId);
       studyIndex = idx >= 0 ? idx : 0;
       revealShown[cardId] = true;
@@ -774,15 +1129,19 @@ function renderStatPill(){
 function render(){
   renderSidebar();
   document.getElementById("filterSelect").value = currentFilter;
+  document.getElementById("filterSelect").style.display = (currentTab === "study" || currentTab === "manage") ? "" : "none";
   document.getElementById("tabStudy").classList.toggle("active", currentTab === "study");
   document.getElementById("tabManage").classList.toggle("active", currentTab === "manage");
   document.getElementById("tabDash").classList.toggle("active", currentTab === "dash");
+  document.getElementById("tabMindmap").classList.toggle("active", currentTab === "mindmap");
   document.getElementById("studyView").style.display = currentTab === "study" ? "" : "none";
   document.getElementById("manageView").style.display = currentTab === "manage" ? "" : "none";
   document.getElementById("dashView").style.display = currentTab === "dash" ? "" : "none";
+  document.getElementById("mindmapView").style.display = currentTab === "mindmap" ? "" : "none";
   if (currentTab === "study") renderStudy();
   else if (currentTab === "manage") renderManage();
-  else renderDash();
+  else if (currentTab === "dash") renderDash();
+  else renderMindmap();
   renderStatPill();
 }
 
@@ -793,7 +1152,9 @@ document.getElementById("tabManage").onclick = () => {
   render();
 };
 document.getElementById("tabDash").onclick = () => { currentTab = "dash"; render(); };
+document.getElementById("tabMindmap").onclick = () => { currentTab = "mindmap"; render(); };
 document.getElementById("filterSelect").onchange = (e) => { currentFilter = e.target.value; studyIndex = 0; render(); };
 
+document.getElementById("versionTag").textContent = "v" + APP_VERSION;
 render();
 </script>
