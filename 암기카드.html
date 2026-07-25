@@ -16,6 +16,8 @@
   v1.6.1 (2026-07-26) — 답안 입력칸에서 Ctrl+B(Mac: Cmd+B) 단축키로도 볼드체 적용 가능
   v1.7.0 (2026-07-26) — 답안 입력칸을 contenteditable 기반으로 변경해 **기호 없이 입력 즉시
     실제 굵은 글씨로 보이는 위지윅(WYSIWYG) 볼드 편집으로 전환. 저장 형식은 기존과 동일(마크다운 **문자열).
+  v1.8.0 (2026-07-26) — 카드 중요도(★1~5) 추가: 카드 관리에서 별점 설정,
+    마인드맵 카드 이름 옆에 별점 표시, 학습 범위 패널에서 중요도별로 필터링해 학습 가능
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -234,6 +236,34 @@
   .crow-title { font-size: 0.92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .crow-breadcrumb { font-size: 0.72rem; color: var(--ink-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .crow-actions { display: flex; gap: 6px; flex: none; }
+  .crow-stars, .study-stars, .mm-card-stars { font-family: var(--font-mono); letter-spacing: 1px; }
+  .crow-stars, .mm-card-stars { color: #C9971F; font-size: 0.72rem; }
+  @media (prefers-color-scheme: dark) { .crow-stars, .mm-card-stars { color: #E3B84A; } }
+  :root[data-theme="dark"] .crow-stars, :root[data-theme="dark"] .mm-card-stars { color: #E3B84A; }
+  :root[data-theme="light"] .crow-stars, :root[data-theme="light"] .mm-card-stars { color: #C9971F; }
+  .study-stars { font-size: 0.9rem; color: #C9971F; }
+  @media (prefers-color-scheme: dark) { .study-stars { color: #E3B84A; } }
+  :root[data-theme="dark"] .study-stars { color: #E3B84A; }
+  :root[data-theme="light"] .study-stars { color: #C9971F; }
+  .star-picker { display: flex; gap: 2px; }
+  .star-picker .star-btn {
+    border: none; background: transparent; cursor: pointer; font-size: 1.3rem; padding: 2px 3px;
+    color: #C9971F; line-height: 1;
+  }
+  @media (prefers-color-scheme: dark) { .star-picker .star-btn { color: #E3B84A; } }
+  :root[data-theme="dark"] .star-picker .star-btn { color: #E3B84A; }
+  :root[data-theme="light"] .star-picker .star-btn { color: #C9971F; }
+  .star-picker .star-btn:hover { transform: scale(1.15); }
+  .scope-importance { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .scope-importance-label { font-size: 0.78rem; color: var(--ink-faint); margin-right: 4px; }
+  .importance-toggle-btn {
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-faint);
+    border-radius: 999px; padding: 4px 10px; font-size: 0.76rem; cursor: pointer; font-family: var(--font-mono);
+  }
+  .importance-toggle-btn.active { background: #C9971F; border-color: #C9971F; color: #fff; }
+  @media (prefers-color-scheme: dark) { .importance-toggle-btn.active { background: #E3B84A; border-color: #E3B84A; color: #172019; } }
+  :root[data-theme="dark"] .importance-toggle-btn.active { background: #E3B84A; border-color: #E3B84A; color: #172019; }
+  :root[data-theme="light"] .importance-toggle-btn.active { background: #C9971F; border-color: #C9971F; color: #fff; }
   .list-head { display: flex; align-items: baseline; justify-content: space-between; margin: 26px 0 4px; }
   .list-head h3 { font-family: var(--font-serif); font-size: 1rem; margin: 0; }
   .list-head .count { font-size: 0.76rem; color: var(--ink-faint); font-family: var(--font-mono); }
@@ -302,6 +332,7 @@
   .mm-card-dot.st-△ { background: var(--amber); opacity: 1; }
   .mm-card-dot.st-X { background: var(--red); opacity: 1; }
   .mm-card-title { flex: 1; line-height: 1.55; word-break: break-word; }
+  .mm-card-stars { flex: none; margin-top: 2px; }
   .mm-drag-handle, .mm-drag-spacer {
     flex: none; width: 16px; text-align: center; color: var(--ink-faint); font-size: 0.9rem;
     cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.1s ease;
@@ -393,7 +424,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -542,6 +573,8 @@ function cardsIn(catId){
   return db.cards.filter(c => ids.has(c.categoryId));
 }
 function cardSortKey(card){ return card.order != null ? card.order : (card.createdAt || 0); }
+function cardImportance(card){ return card.importance != null ? card.importance : 3; }
+function starsHtml(n){ return "★".repeat(n) + "☆".repeat(5 - n); }
 function cardsInCategorySorted(catId){
   return db.cards.filter(c => c.categoryId === catId).sort((a,b) => cardSortKey(a) - cardSortKey(b));
 }
@@ -583,21 +616,23 @@ let editingCatId = null;    // sidebar category rename
 let addingSubcatFor = null; // sidebar: category id or "root"
 let editingCardId = null;   // manage form: editing existing card
 let showInlineNewCat = false;
-let formDraft = { title: "", categoryId: "", answer: "" };
+let formDraft = { title: "", categoryId: "", answer: "", importance: 3 };
 
-// ---------- study scope (다중 카테고리 선택 + 셔플) ----------
+// ---------- study scope (다중 카테고리 선택 + 셔플 + 중요도) ----------
 function loadStudyScope(){
+  const fallback = () => ({ all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]) });
   try {
     const raw = localStorage.getItem(SCOPE_KEY);
-    if (!raw) return { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false };
+    if (!raw) return fallback();
     const p = JSON.parse(raw);
     return {
       all: p.all !== false,
       catIds: new Set(p.catIds || []),
       includeUncategorized: p.includeUncategorized !== false,
       shuffle: !!p.shuffle,
+      importance: new Set(Array.isArray(p.importance) && p.importance.length ? p.importance : [1,2,3,4,5]),
     };
-  } catch(e) { return { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false }; }
+  } catch(e) { return fallback(); }
 }
 function saveStudyScope(){
   localStorage.setItem(SCOPE_KEY, JSON.stringify({
@@ -605,6 +640,7 @@ function saveStudyScope(){
     catIds: Array.from(studyScope.catIds),
     includeUncategorized: studyScope.includeUncategorized,
     shuffle: studyScope.shuffle,
+    importance: Array.from(studyScope.importance),
   }));
 }
 let studyScope = loadStudyScope();
@@ -666,7 +702,9 @@ function currentStudyQueue(){
     shuffleOrder = null;
   }
   const idToCard = new Map(db.cards.map(c => [c.id, c]));
-  return orderedIds.map(id => idToCard.get(id)).filter(Boolean).filter(c => matchesFilter(c, currentFilter));
+  return orderedIds.map(id => idToCard.get(id)).filter(Boolean)
+    .filter(c => matchesFilter(c, currentFilter))
+    .filter(c => studyScope.importance.has(cardImportance(c)));
 }
 function scopeSummaryText(){
   const count = studyBaseCardIds().length;
@@ -678,7 +716,8 @@ function scopeSummaryText(){
     if (studyScope.includeUncategorized) names.push("미분류");
     label = names.length ? names.join(", ") : "(선택 없음)";
   }
-  return `${escapeHtml(label)} · ${count}장 · ${studyScope.shuffle ? "🔀 랜덤 순서" : "순서대로"}`;
+  const impLabel = studyScope.importance.size === 5 ? "" : ` · ★${Array.from(studyScope.importance).sort().join(",")}`;
+  return `${escapeHtml(label)} · ${count}장 · ${studyScope.shuffle ? "🔀 랜덤 순서" : "순서대로"}${impLabel}`;
 }
 
 // ---------- sidebar ----------
@@ -830,6 +869,10 @@ function scopePanelHtml(){
           <label class="scope-shuffle"><input type="checkbox" id="scopeShuffleCheck" ${studyScope.shuffle ? "checked" : ""}/> 🔀 랜덤 순서</label>
           ${studyScope.shuffle ? `<button class="btn ghost sm" id="scopeReshuffleBtn">다시 섞기</button>` : ""}
         </div>
+        <div class="scope-importance">
+          <span class="scope-importance-label">중요도</span>
+          ${[1,2,3,4,5].map(n => `<button type="button" class="importance-toggle-btn ${studyScope.importance.has(n) ? "active" : ""}" data-imptoggle="${n}">★${n}</button>`).join("")}
+        </div>
         <div class="scope-tree">
           ${hasUncat ? `<label class="scope-check-row uncat"><input type="checkbox" id="scopeUncatCheck" ${uncatChecked ? "checked" : ""}/> 미분류</label>` : ""}
           ${rows || `<div class="sidebar-hint">아직 카테고리가 없습니다.</div>`}
@@ -879,6 +922,17 @@ function wireScopePanel(view){
       saveStudyScope(); studyIndex = 0; renderStudy();
     };
   });
+  view.querySelectorAll("[data-imptoggle]").forEach(btn => {
+    btn.onclick = () => {
+      const n = Number(btn.dataset.imptoggle);
+      if (studyScope.importance.has(n)) {
+        if (studyScope.importance.size > 1) studyScope.importance.delete(n);
+      } else {
+        studyScope.importance.add(n);
+      }
+      saveStudyScope(); studyIndex = 0; renderStudy();
+    };
+  });
 }
 
 function renderStudy(){
@@ -909,6 +963,7 @@ function renderStudy(){
           <div class="sec-label">${escapeHtml(breadcrumb)}</div>
           <div class="badge-row" style="margin-top:4px;">
             <span style="font-family:var(--font-serif);font-weight:700;font-size:1.15rem;">${escapeHtml(card.title)}</span>
+            <span class="study-stars">${starsHtml(cardImportance(card))}</span>
           </div>
         </div>
         <span class="status-badge status-${card.status || "none"}">${statusText(card.status)}</span>
@@ -1004,6 +1059,11 @@ function renderManage(){
       <label class="field-label">제목</label>
       <input type="text" class="text-input" id="cardTitleInput" placeholder="예: 세포호흡의 3단계" value="${escapeAttr(formDraft.title)}" />
 
+      <label class="field-label">중요도</label>
+      <div class="star-picker" id="cardImportancePicker">
+        ${[1,2,3,4,5].map(n => `<button type="button" class="star-btn" data-star="${n}">${n <= formDraft.importance ? "★" : "☆"}</button>`).join("")}
+      </div>
+
       <label class="field-label">카테고리</label>
       <div style="display:flex; gap:8px; align-items:center;">
         <select class="select-input" id="cardCategorySelect">${buildCategoryOptionsHtml(formDraft.categoryId)}</select>
@@ -1040,7 +1100,7 @@ function renderManage(){
         <div class="card-row">
           <div class="crow-main">
             <div class="crow-title">${escapeHtml(card.title)}</div>
-            <div class="crow-breadcrumb">${escapeHtml(breadcrumb)}</div>
+            <div class="crow-breadcrumb">${escapeHtml(breadcrumb)} · <span class="crow-stars">${starsHtml(cardImportance(card))}</span></div>
           </div>
           <span class="status-badge status-${card.status || "none"}">${statusText(card.status)}</span>
           <div class="crow-actions">
@@ -1054,6 +1114,10 @@ function renderManage(){
 
   document.getElementById("cardTitleInput").addEventListener("input", e => formDraft.title = e.target.value);
   document.getElementById("cardCategorySelect").addEventListener("change", e => formDraft.categoryId = e.target.value);
+  document.querySelectorAll("#cardImportancePicker .star-btn").forEach(b => b.onclick = () => {
+    formDraft.importance = Number(b.dataset.star);
+    renderManage();
+  });
   const cardAnswerEditable = document.getElementById("cardAnswerInput");
   updateEmptyState(cardAnswerEditable);
   cardAnswerEditable.addEventListener("input", () => {
@@ -1087,27 +1151,28 @@ function renderManage(){
     if (!title) { alert("제목을 입력해주세요."); return; }
     const categoryId = formDraft.categoryId || null;
     const answer = formDraft.answer;
+    const importance = formDraft.importance;
     if (editingCardId) {
       const card = db.cards.find(c => c.id === editingCardId);
-      Object.assign(card, { title, categoryId, answer, updatedAt: Date.now() });
+      Object.assign(card, { title, categoryId, answer, importance, updatedAt: Date.now() });
       editingCardId = null;
     } else {
-      db.cards.push({ id: uid("card"), title, categoryId, answer, draft: "", status: null, createdAt: Date.now(), updatedAt: Date.now() });
+      db.cards.push({ id: uid("card"), title, categoryId, answer, importance, draft: "", status: null, createdAt: Date.now(), updatedAt: Date.now() });
     }
-    formDraft = { title: "", categoryId: categoryId || "", answer: "" };
+    formDraft = { title: "", categoryId: categoryId || "", answer: "", importance: 3 };
     showInlineNewCat = false;
     saveDB();
     render();
   };
   const cancelEditBtn = document.getElementById("cardCancelEditBtn");
   if (cancelEditBtn) cancelEditBtn.onclick = () => {
-    editingCardId = null; formDraft = { title: "", categoryId: selectedCatId || "", answer: "" }; renderManage();
+    editingCardId = null; formDraft = { title: "", categoryId: selectedCatId || "", answer: "", importance: 3 }; renderManage();
   };
 
   view.querySelectorAll("[data-editcard]").forEach(b => b.onclick = () => {
     const card = db.cards.find(c => c.id === b.dataset.editcard);
     editingCardId = card.id;
-    formDraft = { title: card.title, categoryId: card.categoryId || "", answer: card.answer || "" };
+    formDraft = { title: card.title, categoryId: card.categoryId || "", answer: card.answer || "", importance: cardImportance(card) };
     showInlineNewCat = false;
     renderManage();
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1115,7 +1180,7 @@ function renderManage(){
   view.querySelectorAll("[data-delcard]").forEach(b => b.onclick = () => {
     if (!confirm("이 카드를 삭제할까요? 채점 기록도 함께 사라집니다.")) return;
     db.cards = db.cards.filter(c => c.id !== b.dataset.delcard);
-    if (editingCardId === b.dataset.delcard) { editingCardId = null; formDraft = { title:"", categoryId: selectedCatId||"", answer:"" }; }
+    if (editingCardId === b.dataset.delcard) { editingCardId = null; formDraft = { title:"", categoryId: selectedCatId||"", answer:"", importance: 3 }; }
     saveDB(); render();
   });
 }
@@ -1184,7 +1249,7 @@ function renderDash(){
 
 // ---------- mindmap (outline) view ----------
 function cardKidsFor(catId){
-  return cardsInCategorySorted(catId).map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
+  return cardsInCategorySorted(catId).map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, importance: cardImportance(c), children: [] }));
 }
 function buildMindmapTree(){
   function catNode(cat){
@@ -1228,6 +1293,7 @@ function mmOutlineHtml(node){
       <span class="mm-drag-handle" title="드래그해서 순서 변경">⠿</span>
       <span class="mm-card-dot ${stCls}"></span>
       <span class="mm-card-title">${escapeHtml(node.name)}</span>
+      <span class="mm-card-stars">${starsHtml(node.importance)}</span>
     </div>
   `;
 }
@@ -1363,7 +1429,7 @@ function render(){
 document.getElementById("tabStudy").onclick = () => { currentTab = "study"; render(); };
 document.getElementById("tabManage").onclick = () => {
   currentTab = "manage";
-  if (!editingCardId) formDraft = { title: "", categoryId: selectedCatId || "", answer: "" };
+  if (!editingCardId) formDraft = { title: "", categoryId: selectedCatId || "", answer: "", importance: 3 };
   render();
 };
 document.getElementById("tabDash").onclick = () => { currentTab = "dash"; render(); };
