@@ -14,6 +14,8 @@
   v1.6.0 (2026-07-26) — 모범답안에 볼드체 강조 추가. **텍스트** 로 감싸면 굵게 표시되고,
     답안 입력칸 위 B 버튼으로 선택한 텍스트를 한 번에 감쌀 수 있음
   v1.6.1 (2026-07-26) — 답안 입력칸에서 Ctrl+B(Mac: Cmd+B) 단축키로도 볼드체 적용 가능
+  v1.7.0 (2026-07-26) — 답안 입력칸을 contenteditable 기반으로 변경해 **기호 없이 입력 즉시
+    실제 굵은 글씨로 보이는 위지윅(WYSIWYG) 볼드 편집으로 전환. 저장 형식은 기존과 동일(마크다운 **문자열).
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -169,12 +171,18 @@
   }
   textarea.recall-input:focus { border-color: var(--accent); }
 
-  input.text-input, select.select-input, textarea.answer-input {
+  input.text-input, select.select-input, .answer-input {
     width: 100%; font-size: 0.9rem; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--ink); outline: none;
   }
-  textarea.answer-input { min-height: 110px; resize: vertical; line-height: 1.7; font-family: var(--font-serif); }
-  input.text-input:focus, select.select-input:focus, textarea.answer-input:focus { border-color: var(--accent); }
+  .answer-input { min-height: 110px; line-height: 1.7; font-family: var(--font-serif); }
+  input.text-input:focus, select.select-input:focus, .answer-input:focus { border-color: var(--accent); }
+  .answer-editable { position: relative; white-space: pre-wrap; overflow-y: auto; max-height: 340px; }
+  .answer-editable div { min-height: 1.7em; }
+  .answer-editable.is-empty::before {
+    content: attr(data-placeholder); position: absolute; top: 9px; left: 12px;
+    color: var(--ink-faint); pointer-events: none;
+  }
   .answer-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .answer-toolbar-hint { font-size: 0.72rem; color: var(--ink-faint); }
 
@@ -385,7 +393,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.6.1";
+const APP_VERSION = "1.7.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -431,34 +439,77 @@ function renderAnswerHtml(text){
   return lines.map(line => `<p>${applyBold(escapeHtml(line))}</p>`).join("");
 }
 function statusText(s){ return s === "O" ? "완벽" : s === "△" ? "애매" : s === "X" ? "다시" : "미채점"; }
-function wrapSelectionBold(ta){
-  const start = ta.selectionStart, end = ta.selectionEnd;
-  const val = ta.value;
-  const selected = val.slice(start, end);
-  const before = val.slice(0, start);
-  const after = val.slice(end);
-  let newStart, newEnd;
-  if (selected) {
-    ta.value = before + "**" + selected + "**" + after;
-    newStart = start + 2;
-    newEnd = end + 2;
-  } else {
-    const placeholder = "볼드체";
-    ta.value = before + "**" + placeholder + "**" + after;
-    newStart = start + 2;
-    newEnd = newStart + placeholder.length;
-  }
-  ta.focus();
-  ta.setSelectionRange(newStart, newEnd);
-  ta.dispatchEvent(new Event("input", { bubbles: true }));
+// ---------- WYSIWYG bold editing (contenteditable) ----------
+// Stored answers stay plain text with a **bold** markdown-style convention.
+// The edit UI is a contenteditable div that shows real bold live; we convert
+// between the stored markdown string and the editable HTML on entry/exit.
+function markdownToEditableHtml(text){
+  const lines = String(text || "").split("\n");
+  return lines.map(line => {
+    const esc = applyBold(escapeHtml(line));
+    return `<div>${esc || "<br>"}</div>`;
+  }).join("");
 }
-function bindBoldShortcut(ta){
-  ta.addEventListener("keydown", (e) => {
+function nodeToMarkdown(node, bold){
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const tag = node.tagName;
+  if (tag === "BR") return "\n";
+  if (tag === "STRONG" || tag === "B") {
+    const inner = Array.from(node.childNodes).map(c => nodeToMarkdown(c, true)).join("");
+    return inner ? "**" + inner + "**" : "";
+  }
+  if (tag === "DIV" || tag === "P") {
+    const inner = Array.from(node.childNodes).map(c => nodeToMarkdown(c, bold)).join("");
+    return inner + "\n";
+  }
+  return Array.from(node.childNodes).map(c => nodeToMarkdown(c, bold)).join("");
+}
+function editableHtmlToMarkdown(root){
+  let out = Array.from(root.childNodes).map(c => nodeToMarkdown(c, false)).join("");
+  if (out.endsWith("\n")) out = out.slice(0, -1);
+  return out;
+}
+function toggleBoldSelection(el){
+  el.focus();
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  if (sel.isCollapsed) {
+    document.execCommand("bold");
+    document.execCommand("insertText", false, "볼드체");
+    const sel2 = window.getSelection();
+    if (sel2 && sel2.rangeCount) {
+      const range = sel2.getRangeAt(0);
+      const endNode = range.endContainer, endOffset = range.endOffset;
+      const startOffset = Math.max(0, endOffset - 3);
+      const newRange = document.createRange();
+      newRange.setStart(endNode, startOffset);
+      newRange.setEnd(endNode, endOffset);
+      sel2.removeAllRanges();
+      sel2.addRange(newRange);
+    }
+  } else {
+    document.execCommand("bold");
+  }
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+function bindBoldShortcut(el){
+  el.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "b" || e.key === "B")) {
       e.preventDefault();
-      wrapSelectionBold(ta);
+      toggleBoldSelection(el);
     }
   });
+}
+function bindPlainTextPaste(el){
+  el.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, text);
+  });
+}
+function updateEmptyState(el){
+  el.classList.toggle("is-empty", el.textContent.trim() === "");
 }
 
 // ---------- category helpers ----------
@@ -880,9 +931,9 @@ function renderStudy(){
         ${editingAnswer
           ? `<div class="answer-toolbar">
                <button type="button" class="btn ghost sm" id="studyAnswerBoldBtn"><b>B</b></button>
-               <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요 (Ctrl+B)</span>
+               <span class="answer-toolbar-hint">텍스트를 선택하고 누르면 굵게 표시돼요 (Ctrl+B)</span>
              </div>
-             <textarea class="answer-input" id="studyAnswerEdit" style="min-height:130px;">${escapeHtml(card.answer || "")}</textarea>`
+             <div class="answer-input answer-editable" id="studyAnswerEdit" contenteditable="true" style="min-height:130px;">${markdownToEditableHtml(card.answer)}</div>`
           : `<div class="answer-text">${renderAnswerHtml(card.answer)}</div>`}
       </div>
       <div class="grade-row">
@@ -915,13 +966,15 @@ function renderStudy(){
   if (editAnswerBtn) editAnswerBtn.onclick = () => { editingAnswerId = card.id; renderStudy(); };
   const saveAnswerBtn = document.getElementById("studySaveAnswerBtn");
   if (saveAnswerBtn) saveAnswerBtn.onclick = () => {
-    card.answer = document.getElementById("studyAnswerEdit").value;
+    card.answer = editableHtmlToMarkdown(document.getElementById("studyAnswerEdit"));
     editingAnswerId = null; saveDB(); renderStudy();
   };
   const studyAnswerBoldBtn = document.getElementById("studyAnswerBoldBtn");
   if (studyAnswerBoldBtn) {
-    studyAnswerBoldBtn.onclick = () => wrapSelectionBold(document.getElementById("studyAnswerEdit"));
-    bindBoldShortcut(document.getElementById("studyAnswerEdit"));
+    const editable = document.getElementById("studyAnswerEdit");
+    studyAnswerBoldBtn.onclick = () => toggleBoldSelection(editable);
+    bindBoldShortcut(editable);
+    bindPlainTextPaste(editable);
   }
 
   view.querySelectorAll(".grade-btn").forEach(b => {
@@ -966,9 +1019,9 @@ function renderManage(){
       <label class="field-label">모범답안 (인출 후 대조할 내용)</label>
       <div class="answer-toolbar">
         <button type="button" class="btn ghost sm" id="cardAnswerBoldBtn"><b>B</b></button>
-        <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요 (Ctrl+B)</span>
+        <span class="answer-toolbar-hint">텍스트를 선택하고 누르면 굵게 표시돼요 (Ctrl+B)</span>
       </div>
-      <textarea class="answer-input" id="cardAnswerInput" placeholder="정답으로 확인할 내용을 입력하세요">${escapeHtml(formDraft.answer)}</textarea>
+      <div class="answer-input answer-editable" id="cardAnswerInput" contenteditable="true" data-placeholder="정답으로 확인할 내용을 입력하세요">${markdownToEditableHtml(formDraft.answer)}</div>
 
       <div class="actions-row">
         <button class="btn primary" id="cardSaveBtn">${editingCardId ? "수정 저장" : "카드 추가"}</button>
@@ -1001,9 +1054,15 @@ function renderManage(){
 
   document.getElementById("cardTitleInput").addEventListener("input", e => formDraft.title = e.target.value);
   document.getElementById("cardCategorySelect").addEventListener("change", e => formDraft.categoryId = e.target.value);
-  document.getElementById("cardAnswerInput").addEventListener("input", e => formDraft.answer = e.target.value);
-  document.getElementById("cardAnswerBoldBtn").onclick = () => wrapSelectionBold(document.getElementById("cardAnswerInput"));
-  bindBoldShortcut(document.getElementById("cardAnswerInput"));
+  const cardAnswerEditable = document.getElementById("cardAnswerInput");
+  updateEmptyState(cardAnswerEditable);
+  cardAnswerEditable.addEventListener("input", () => {
+    formDraft.answer = editableHtmlToMarkdown(cardAnswerEditable);
+    updateEmptyState(cardAnswerEditable);
+  });
+  document.getElementById("cardAnswerBoldBtn").onclick = () => toggleBoldSelection(cardAnswerEditable);
+  bindBoldShortcut(cardAnswerEditable);
+  bindPlainTextPaste(cardAnswerEditable);
 
   document.getElementById("cardNewCatBtn").onclick = () => { showInlineNewCat = !showInlineNewCat; renderManage(); };
   const inlineConfirm = document.getElementById("cardInlineNewCatConfirm");
