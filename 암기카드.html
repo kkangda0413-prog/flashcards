@@ -3,6 +3,7 @@
   `git checkout <커밋해시> -- 암기카드.html` 실행 (그 다음 새로 저장하면 됨)
   v1.0 (2026-07-25) — 최초 버전: 카드/카테고리 CRUD, 계층 카테고리, 학습·자가채점(X/△/○), 필터, 전체 현황 대시보드
   v1.1 (2026-07-26) — 마인드맵 보기 추가, 학습 시 복수 카테고리 선택 + 셔플(랜덤 순서) 기능 추가, 버전 표시 시작
+  v1.2 (2026-07-26) — 마인드맵을 SVG 다이어그램에서 들여쓰기 기반 목록(전체 제목 표시)으로 변경, PDF 다운로드 버튼 추가
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -260,22 +261,33 @@
   .scope-check-row input { flex: none; }
   .scope-check-row.uncat { border-bottom: 1px dashed var(--border); margin-bottom: 3px; padding-bottom: 7px; }
 
-  .mindmap-wrap { overflow: auto; max-height: 74vh; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 2px 10px var(--shadow); padding: 16px; }
-  .mm-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
-  .mm-node-box { fill: var(--surface-2); stroke: var(--border); }
-  .mm-node-text { font-family: var(--font-sans); font-size: 12px; fill: var(--ink); dominant-baseline: middle; }
-  .mm-root-box { fill: var(--accent); stroke: var(--accent); }
-  .mm-root-text { fill: var(--surface); font-weight: 700; }
-  .mm-cat-box { fill: var(--accent-soft); stroke: var(--accent); cursor: pointer; }
-  .mm-cat-text { fill: var(--accent); font-weight: 700; cursor: pointer; }
-  .mm-card-pill { cursor: pointer; stroke-width: 1; }
-  .mm-card-pill.st-O { fill: var(--green); stroke: var(--green); }
-  .mm-card-pill.st-△ { fill: var(--amber); stroke: var(--amber); }
-  .mm-card-pill.st-X { fill: var(--red); stroke: var(--red); }
-  .mm-card-pill.st-none { fill: var(--surface); stroke: var(--border); }
-  .mm-card-text { font-size: 11.5px; cursor: pointer; }
-  .mm-card-text.st-O, .mm-card-text.st-△, .mm-card-text.st-X { fill: #fff; }
-  .mm-card-text.st-none { fill: var(--ink-soft); }
+  .mindmap-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .mindmap-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 2px 10px var(--shadow); padding: 18px 20px; }
+  .mm-print-header { display: none; }
+  .mm-outline { font-size: 0.92rem; }
+  .mm-branch { margin: 3px 0; }
+  .mm-children { margin-left: 16px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .mm-cat-row {
+    display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+  }
+  .mm-cat-row:hover { background: var(--surface-2); }
+  .mm-cat-name { font-weight: 700; color: var(--accent); font-family: var(--font-serif); }
+  .mm-cat-count { font-size: 0.72rem; color: var(--ink-faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .mm-card-row { display: flex; align-items: flex-start; gap: 9px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+  .mm-card-row:hover { background: var(--surface-2); }
+  .mm-card-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--ink-faint); opacity: 0.35; }
+  .mm-card-dot.st-O { background: var(--green); opacity: 1; }
+  .mm-card-dot.st-△ { background: var(--amber); opacity: 1; }
+  .mm-card-dot.st-X { background: var(--red); opacity: 1; }
+  .mm-card-title { line-height: 1.55; word-break: break-word; }
+
+  @media print {
+    body * { visibility: hidden; }
+    #mindmapPrintArea, #mindmapPrintArea * { visibility: visible; }
+    #mindmapPrintArea { position: absolute; top: 0; left: 0; width: 100%; box-shadow: none; border: none; padding: 0; }
+    .mm-print-header { display: block; font-family: var(--font-serif); font-size: 1.1rem; font-weight: 700; margin-bottom: 14px; }
+    .mm-cat-row, .mm-card-row { cursor: default; }
+  }
 
   .version-tag { text-align: center; font-size: 0.7rem; color: var(--ink-faint); font-family: var(--font-mono); margin-top: 28px; }
 </style>
@@ -321,7 +333,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -985,7 +997,7 @@ function renderDash(){
   });
 }
 
-// ---------- mindmap view ----------
+// ---------- mindmap (outline) view ----------
 function buildMindmapTree(){
   function catNode(cat){
     const kids = children(cat.id).map(catNode);
@@ -1002,38 +1014,32 @@ function buildMindmapTree(){
   if (uncatCards.length) rootChildren.push({ type: "category", id: null, name: "미분류", children: uncatCards });
   return { type: "root", id: null, name: "전체", children: rootChildren };
 }
-function mmNodeWidth(node){
-  if (node.type === "root") return 80;
-  if (node.type === "category") return 150;
-  return 180;
+function countCardsInNode(node){
+  if (node.type === "card") return 1;
+  return node.children.reduce((sum, ch) => sum + countCardsInNode(ch), 0);
 }
-function mmTruncate(name, node){
-  const limit = node.type === "root" ? 6 : node.type === "category" ? 11 : 14;
-  return name.length > limit ? name.slice(0, limit-1) + "…" : name;
-}
-const MM_ROW_H = 30, MM_COL_W = 210, MM_PAD = 30;
-function layoutMindmap(root){
-  let y = 0;
-  function walk(node, depth){
-    node.depth = depth;
-    node.x = depth * MM_COL_W;
-    if (!node.children.length) {
-      node.y = y; y += MM_ROW_H;
-    } else {
-      node.children.forEach(ch => walk(ch, depth+1));
-      const first = node.children[0], last = node.children[node.children.length-1];
-      node.y = (first.y + last.y) / 2;
-    }
+function mmOutlineHtml(node){
+  if (node.type === "root") {
+    return node.children.map(mmOutlineHtml).join("");
   }
-  walk(root, 0);
-  let maxDepth = 0;
-  (function findMax(node){ maxDepth = Math.max(maxDepth, node.depth); node.children.forEach(findMax); })(root);
-  return { height: Math.max(y, MM_ROW_H), maxDepth };
-}
-function flattenMindmap(node, out){
-  out.push(node);
-  node.children.forEach(ch => flattenMindmap(ch, out));
-  return out;
+  if (node.type === "category") {
+    return `
+      <div class="mm-branch">
+        <div class="mm-cat-row" data-catid="${node.id===null ? "" : node.id}">
+          <span class="mm-cat-name">${escapeHtml(node.name)}</span>
+          <span class="mm-cat-count">${countCardsInNode(node)}장</span>
+        </div>
+        <div class="mm-children">${node.children.map(mmOutlineHtml).join("")}</div>
+      </div>
+    `;
+  }
+  const stCls = node.status ? `st-${node.status}` : "st-none";
+  return `
+    <div class="mm-card-row ${stCls}" data-cardid="${node.id}">
+      <span class="mm-card-dot ${stCls}"></span>
+      <span class="mm-card-title">${escapeHtml(node.name)}</span>
+    </div>
+  `;
 }
 function renderMindmap(){
   const view = document.getElementById("mindmapView");
@@ -1042,68 +1048,35 @@ function renderMindmap(){
     return;
   }
   const root = buildMindmapTree();
-  const { height, maxDepth } = layoutMindmap(root);
-  const nodes = flattenMindmap(root, []);
-  const svgW = (maxDepth+1) * MM_COL_W + MM_PAD*2;
-  const svgH = height + MM_PAD*2;
-
-  const edgesSvg = [];
-  const nodesSvg = [];
-
-  nodes.forEach(node => {
-    const x1 = node.x + MM_PAD + mmNodeWidth(node), y1 = node.y + MM_PAD;
-    node.children.forEach(ch => {
-      const x2 = ch.x + MM_PAD - 4, y2 = ch.y + MM_PAD;
-      const mx = (x1 + x2) / 2;
-      edgesSvg.push(`<path class="mm-edge" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"></path>`);
-    });
-  });
-
-  nodes.forEach(node => {
-    const cx = node.x + MM_PAD, cy = node.y + MM_PAD;
-    const label = mmTruncate(node.name, node);
-    if (node.type === "root") {
-      nodesSvg.push(`
-        <rect class="mm-node-box mm-root-box" x="${cx}" y="${cy-14}" width="80" height="28" rx="14"></rect>
-        <text class="mm-node-text mm-root-text" x="${cx+40}" y="${cy+1}" text-anchor="middle">${escapeHtml(label)}</text>
-      `);
-    } else if (node.type === "category") {
-      nodesSvg.push(`
-        <g class="mm-cat-group" data-catid="${node.id===null ? "" : node.id}">
-          <rect class="mm-node-box mm-cat-box" x="${cx}" y="${cy-13}" width="150" height="26" rx="8"><title>${escapeAttr(node.name)}</title></rect>
-          <text class="mm-node-text mm-cat-text" x="${cx+12}" y="${cy+1}">${escapeHtml(label)}</text>
-        </g>
-      `);
-    } else {
-      const stCls = node.status ? `st-${node.status}` : "st-none";
-      nodesSvg.push(`
-        <g class="mm-card-group" data-cardid="${node.id}">
-          <rect class="mm-node-box mm-card-pill ${stCls}" x="${cx}" y="${cy-12}" width="180" height="24" rx="12"><title>${escapeAttr(node.name)}</title></rect>
-          <text class="mm-node-text mm-card-text ${stCls}" x="${cx+12}" y="${cy+1}">${escapeHtml(label)}</text>
-        </g>
-      `);
-    }
-  });
+  const counts = statusCounts(db.cards);
+  const today = new Date().toLocaleDateString("ko-KR");
 
   view.innerHTML = `
-    <div class="mindmap-wrap">
-      <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
-        ${edgesSvg.join("")}
-        ${nodesSvg.join("")}
-      </svg>
+    <div class="mindmap-toolbar">
+      <div class="dash-summary" style="margin-bottom:0;">
+        <span class="dash-chip"><i class="dot-O"></i>완벽 ${counts.O}</span>
+        <span class="dash-chip"><i class="dot-△"></i>애매 ${counts["△"]}</span>
+        <span class="dash-chip"><i class="dot-X"></i>다시 ${counts.X}</span>
+        <span class="dash-chip"><i class="dot-none"></i>미채점 ${counts.unrated}</span>
+      </div>
+      <button class="btn primary sm" id="mmPdfBtn">⬇ PDF로 다운로드</button>
+    </div>
+    <div class="mindmap-wrap" id="mindmapPrintArea">
+      <div class="mm-print-header">암기카드 — 전체 구조 (${today})</div>
+      <div class="mm-outline">${mmOutlineHtml(root)}</div>
     </div>
   `;
 
-  view.querySelectorAll(".mm-cat-group").forEach(g => {
-    g.onclick = () => {
-      selectedCatId = g.dataset.catid || null;
+  view.querySelectorAll(".mm-cat-row").forEach(row => {
+    row.onclick = () => {
+      selectedCatId = row.dataset.catid || null;
       currentTab = "manage";
       render();
     };
   });
-  view.querySelectorAll(".mm-card-group").forEach(g => {
-    g.onclick = () => {
-      const cardId = g.dataset.cardid;
+  view.querySelectorAll(".mm-card-row").forEach(row => {
+    row.onclick = () => {
+      const cardId = row.dataset.cardid;
       const card = db.cards.find(c => c.id === cardId);
       const catId = card ? card.categoryId : null;
       selectedCatId = catId;
@@ -1117,6 +1090,8 @@ function renderMindmap(){
       render();
     };
   });
+
+  document.getElementById("mmPdfBtn").onclick = () => { window.print(); };
 }
 
 // ---------- orchestration ----------
