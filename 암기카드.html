@@ -1,0 +1,799 @@
+<title>암기카드 — 셀프 인출 연습</title>
+<style>
+  :root {
+    --paper: #EEF2ED;
+    --paper-line: rgba(38,65,54,0.09);
+    --paper-line-strong: rgba(38,65,54,0.16);
+    --surface: #FFFFFF;
+    --surface-2: #F5F8F4;
+    --ink: #172019;
+    --ink-soft: #55655C;
+    --ink-faint: #8A9990;
+    --accent: #26415C;
+    --accent-soft: #DCE6EF;
+    --red: #A6392E;
+    --red-soft: #F6E3E0;
+    --green: #2F6B4E;
+    --green-soft: #DDEEE3;
+    --amber: #96650E;
+    --amber-soft: #F3E6CD;
+    --border: rgba(23,32,25,0.14);
+    --shadow: rgba(23,32,25,0.12);
+    --font-serif: "Noto Serif KR", "Nanum Myeongjo", "Batang", serif;
+    --font-sans: "Pretendard", "Noto Sans KR", "Malgun Gothic", -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "D2Coding", "Consolas", "SFMono-Regular", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #11170F; --paper-line: rgba(255,255,255,0.055); --paper-line-strong: rgba(255,255,255,0.09);
+      --surface: #182019; --surface-2: #1D2620; --ink: #E7EEE7; --ink-soft: #A9B7AC; --ink-faint: #6E7C71;
+      --accent: #8FB3D9; --accent-soft: #22354A; --red: #E38176; --red-soft: #402420;
+      --green: #7FC49E; --green-soft: #1E3327; --amber: #E3B563; --amber-soft: #3A2E16;
+      --border: rgba(255,255,255,0.13); --shadow: rgba(0,0,0,0.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #11170F; --paper-line: rgba(255,255,255,0.055); --paper-line-strong: rgba(255,255,255,0.09);
+    --surface: #182019; --surface-2: #1D2620; --ink: #E7EEE7; --ink-soft: #A9B7AC; --ink-faint: #6E7C71;
+    --accent: #8FB3D9; --accent-soft: #22354A; --red: #E38176; --red-soft: #402420;
+    --green: #7FC49E; --green-soft: #1E3327; --amber: #E3B563; --amber-soft: #3A2E16;
+    --border: rgba(255,255,255,0.13); --shadow: rgba(0,0,0,0.45);
+  }
+  :root[data-theme="light"] {
+    --paper: #EEF2ED; --paper-line: rgba(38,65,54,0.09); --paper-line-strong: rgba(38,65,54,0.16);
+    --surface: #FFFFFF; --surface-2: #F5F8F4; --ink: #172019; --ink-soft: #55655C; --ink-faint: #8A9990;
+    --accent: #26415C; --accent-soft: #DCE6EF; --red: #A6392E; --red-soft: #F6E3E0;
+    --green: #2F6B4E; --green-soft: #DDEEE3; --amber: #96650E; --amber-soft: #F3E6CD;
+    --border: rgba(23,32,25,0.14); --shadow: rgba(23,32,25,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    color: var(--ink);
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 23px, var(--paper-line) 23px, var(--paper-line) 24px),
+      repeating-linear-gradient(90deg, transparent, transparent 23px, var(--paper-line) 23px, var(--paper-line) 24px),
+      var(--paper);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  button { font-family: inherit; }
+  input, select, textarea { font-family: inherit; }
+  ::selection { background: var(--accent-soft); }
+
+  .app { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  .topbar {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border);
+  }
+  .topbar h1 { font-family: var(--font-serif); font-weight: 700; font-size: 1.5rem; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+  .topbar .sub { font-size: 0.82rem; color: var(--ink-soft); margin-top: 4px; }
+  .stat-pill {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.85rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px;
+    display: flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px var(--shadow);
+  }
+  .stat-pill .track { width: 70px; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--border); }
+  .stat-pill .fill { height: 100%; background: var(--green); }
+
+  .layout { display: grid; grid-template-columns: 250px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+
+  .sidebar {
+    display: flex; flex-direction: column; gap: 2px; position: sticky; top: 20px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px;
+    box-shadow: 0 2px 10px var(--shadow);
+  }
+  @media (max-width: 800px) { .sidebar { position: static; } }
+
+  .cat-root-row, .cat-row {
+    display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  }
+  .cat-root-row:hover, .cat-row:hover { background: var(--surface-2); }
+  .cat-root-row.active, .cat-row.active { background: var(--accent-soft); }
+  .cat-root-row .name, .cat-row .name { font-size: 0.86rem; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-row .name { font-weight: 500; }
+  .cat-root-row .count, .cat-row .count { font-size: 0.7rem; font-family: var(--font-mono); color: var(--ink-faint); white-space: nowrap; }
+  .cat-actions { display: none; gap: 2px; flex: none; }
+  .cat-row:hover .cat-actions, .cat-root-row:hover .cat-actions { display: flex; }
+  button.icon-btn {
+    border: none; background: transparent; color: var(--ink-faint); cursor: pointer;
+    font-size: 0.72rem; padding: 3px 5px; border-radius: 5px; line-height: 1;
+  }
+  button.icon-btn:hover { background: var(--surface); color: var(--ink); }
+  .cat-bar { height: 3px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 1px 8px 4px; }
+  .cat-bar i { display: block; height: 100%; background: var(--green); }
+  .cat-rename-input {
+    flex: 1; font-size: 0.85rem; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--accent);
+    background: var(--surface); color: var(--ink); min-width: 0;
+  }
+  .add-cat-row { display: flex; gap: 6px; padding: 5px 8px 8px; align-items: center; }
+  .add-cat-row input {
+    flex: 1; font-size: 0.82rem; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--ink); min-width: 0;
+  }
+  .sidebar-footer { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .sidebar-hint { font-size: 0.74rem; color: var(--ink-faint); padding: 6px 8px; line-height: 1.6; }
+  .btn.sm { padding: 5px 10px; font-size: 0.78rem; border-radius: 7px; }
+
+  .stage { min-width: 0; }
+
+  .mode-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .mode-tabs { display: flex; gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
+  .mode-tabs button { border: none; background: transparent; padding: 7px 14px; border-radius: 8px; font-size: 0.82rem; color: var(--ink-soft); cursor: pointer; }
+  .mode-tabs button.active { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
+
+  select.filter { font-size: 0.8rem; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px 24px; box-shadow: 0 2px 10px var(--shadow); }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .badge-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sec-label { font-size: 0.72rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .status-badge { font-size: 0.72rem; padding: 3px 10px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+  .status-O { background: var(--green-soft); color: var(--green); }
+  .status-△ { background: var(--amber-soft); color: var(--amber); }
+  .status-X { background: var(--red-soft); color: var(--red); }
+  .status-none { background: var(--surface-2); color: var(--ink-faint); }
+
+  label.field-label { display: block; font-size: 0.76rem; color: var(--ink-faint); margin-bottom: 6px; margin-top: 14px; letter-spacing: 0.02em; }
+  label.field-label:first-of-type { margin-top: 0; }
+
+  textarea.recall-input {
+    width: 100%; min-height: 150px; resize: vertical; font-family: var(--font-sans); font-size: 0.95rem; line-height: 24px; color: var(--accent);
+    padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: repeating-linear-gradient(0deg, transparent, transparent 23px, var(--paper-line-strong) 23px, var(--paper-line-strong) 24px), var(--surface-2);
+    outline: none;
+  }
+  textarea.recall-input:focus { border-color: var(--accent); }
+
+  input.text-input, select.select-input, textarea.answer-input {
+    width: 100%; font-size: 0.9rem; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--ink); outline: none;
+  }
+  textarea.answer-input { min-height: 110px; resize: vertical; line-height: 1.7; font-family: var(--font-serif); }
+  input.text-input:focus, select.select-input:focus, textarea.answer-input:focus { border-color: var(--accent); }
+
+  .actions-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  button.btn { border-radius: 9px; border: 1px solid var(--border); background: var(--surface); padding: 9px 16px; font-size: 0.85rem; cursor: pointer; color: var(--ink); }
+  button.btn:hover { background: var(--surface-2); }
+  button.btn:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.btn.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+  button.btn.primary:hover { filter: brightness(1.08); }
+  button.btn.ghost { background: transparent; }
+  button.btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+  button.btn.danger:hover { background: var(--red-soft); }
+  button.btn:disabled { opacity: 0.45; cursor: default; }
+
+  .reveal { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
+  .reveal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .reveal-head .tag { font-size: 0.74rem; color: var(--red); font-weight: 700; letter-spacing: 0.03em; }
+  .pencil-btn { background: none; border: none; cursor: pointer; color: var(--ink-faint); font-size: 0.78rem; text-decoration: underline; padding: 2px; }
+  .answer-text { font-family: var(--font-serif); font-size: 1rem; line-height: 1.85; color: var(--red); border-left: 3px solid var(--red); padding-left: 14px; }
+  .answer-text p { margin: 0 0 10px; }
+  .answer-text p:last-child { margin-bottom: 0; }
+
+  .grade-row { display: flex; gap: 8px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+  .grade-row .label { font-size: 0.78rem; color: var(--ink-faint); margin-right: 4px; }
+  button.grade-btn { border-radius: 999px; padding: 8px 16px; font-size: 0.85rem; font-weight: 700; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--ink-soft); }
+  button.grade-btn[data-g="O"] { border-color: color-mix(in srgb, var(--green) 55%, transparent); }
+  button.grade-btn[data-g="O"].active { background: var(--green-soft); color: var(--green); border-color: var(--green); }
+  button.grade-btn[data-g="△"] { border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
+  button.grade-btn[data-g="△"].active { background: var(--amber-soft); color: var(--amber); border-color: var(--amber); }
+  button.grade-btn[data-g="X"] { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
+  button.grade-btn[data-g="X"].active { background: var(--red-soft); color: var(--red); border-color: var(--red); }
+
+  .nav-row { display: flex; justify-content: space-between; margin-top: 22px; gap: 10px; align-items: center; }
+  .nav-row .right { display: flex; gap: 8px; }
+  .progress-mini { font-size: 0.78rem; color: var(--ink-faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--ink-faint); line-height: 1.8; }
+  .empty-state .big { font-size: 1.6rem; margin-bottom: 8px; }
+
+  .form-card h3 { font-family: var(--font-serif); font-size: 1.05rem; margin: 0 0 4px; }
+  .form-card .cat-add-inline { margin-top: 8px; }
+
+  .card-list { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+  .card-row {
+    display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 11px; padding: 11px 14px; box-shadow: 0 1px 3px var(--shadow);
+  }
+  .crow-main { flex: 1; min-width: 0; }
+  .crow-title { font-size: 0.92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crow-breadcrumb { font-size: 0.72rem; color: var(--ink-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crow-actions { display: flex; gap: 6px; flex: none; }
+  .list-head { display: flex; align-items: baseline; justify-content: space-between; margin: 26px 0 4px; }
+  .list-head h3 { font-family: var(--font-serif); font-size: 1rem; margin: 0; }
+  .list-head .count { font-size: 0.76rem; color: var(--ink-faint); font-family: var(--font-mono); }
+
+  .dash-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+  .dash-chip {
+    display: flex; align-items: center; gap: 7px; font-size: 0.82rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 7px 13px; box-shadow: 0 1px 2px var(--shadow);
+  }
+  .dash-chip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .dash-chip i.dot-O { background: var(--green); }
+  .dash-chip i.dot-△ { background: var(--amber); }
+  .dash-chip i.dot-X { background: var(--red); }
+  .dash-chip i.dot-none { background: var(--ink-faint); opacity: 0.4; }
+
+  .dash-section { margin-bottom: 26px; }
+  .dash-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .dash-section-head h3 { font-family: var(--font-serif); font-size: 1.0rem; margin: 0; }
+  .dash-section-head .count { font-size: 0.76rem; color: var(--ink-faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .dash-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dash-tile {
+    width: 40px; height: 40px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; cursor: pointer; border: 1px solid var(--border);
+    color: var(--ink-soft); background: var(--surface-2); transition: transform 0.1s ease;
+  }
+  .dash-tile:hover { transform: translateY(-2px); }
+  .dash-tile.dash-O { background: var(--green); color: #fff; border-color: var(--green); }
+  .dash-tile.dash-△ { background: var(--amber); color: #fff; border-color: var(--amber); }
+  .dash-tile.dash-X { background: var(--red); color: #fff; border-color: var(--red); }
+
+  @media (prefers-reduced-motion: no-preference) { .card { transition: box-shadow 0.15s ease; } }
+</style>
+
+<div class="app">
+  <div class="topbar">
+    <div>
+      <h1>암기카드</h1>
+      <div class="sub">직접 만들고, 스스로 채점하고, 못 외운 것만 다시 — 인출 연습 도구</div>
+    </div>
+    <div class="stat-pill">
+      <span id="overallStat">0 / 0 완벽</span>
+      <span class="track"><span class="fill" id="overallFill" style="width:0%"></span></span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+    <main class="stage">
+      <div class="mode-row">
+        <div class="mode-tabs">
+          <button id="tabStudy" class="active">학습</button>
+          <button id="tabManage">카드 관리</button>
+          <button id="tabDash">전체 현황</button>
+        </div>
+        <select class="filter" id="filterSelect">
+          <option value="all">전체 보기</option>
+          <option value="unrated">미채점</option>
+          <option value="X">✕ 다시</option>
+          <option value="△">△ 애매</option>
+          <option value="O">○ 완벽</option>
+        </select>
+      </div>
+
+      <div id="studyView"></div>
+      <div id="manageView" style="display:none"></div>
+      <div id="dashView" style="display:none"></div>
+    </main>
+  </div>
+</div>
+
+<script>
+const STORE_KEY = "diy-flashcards-v1";
+
+function loadDB(){
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return { categories: [], cards: [] };
+    const parsed = JSON.parse(raw);
+    return { categories: parsed.categories || [], cards: parsed.cards || [] };
+  } catch(e) { return { categories: [], cards: [] }; }
+}
+let db = loadDB();
+function saveDB(){ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+
+function uid(prefix){ return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8); }
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function escapeAttr(s){
+  return escapeHtml(s).replace(/"/g,"&quot;");
+}
+function renderAnswerHtml(text){
+  const lines = String(text || "").split("\n").filter(l => l.trim().length);
+  if (!lines.length) return `<p style="color:var(--ink-faint)">(모범답안이 비어 있습니다)</p>`;
+  return lines.map(line => `<p>${escapeHtml(line)}</p>`).join("");
+}
+function statusText(s){ return s === "O" ? "완벽" : s === "△" ? "애매" : s === "X" ? "다시" : "미채점"; }
+
+// ---------- category helpers ----------
+function children(parentId){
+  return db.categories.filter(c => c.parentId === parentId).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+}
+function categoryById(id){ return db.categories.find(c => c.id === id); }
+function descendantIds(catId){
+  const out = [catId];
+  children(catId).forEach(c => out.push(...descendantIds(c.id)));
+  return out;
+}
+function categoryPath(id){
+  const path = [];
+  let cur = categoryById(id);
+  while (cur) { path.unshift(cur.name); cur = cur.parentId ? categoryById(cur.parentId) : null; }
+  return path;
+}
+function allCategoriesFlatOrdered(){
+  const out = [];
+  (function walk(parentId, depth){
+    children(parentId).forEach(c => { out.push({id:c.id, name:c.name, depth}); walk(c.id, depth+1); });
+  })(null, 0);
+  return out;
+}
+function cardsIn(catId){
+  if (catId === null) return db.cards;
+  const ids = new Set(descendantIds(catId));
+  return db.cards.filter(c => ids.has(c.categoryId));
+}
+function statusCounts(arr){
+  const r = { total: arr.length, unrated: 0, X: 0, "△": 0, O: 0 };
+  arr.forEach(c => { if (!c.status) r.unrated++; else r[c.status]++; });
+  return r;
+}
+function matchesFilter(card, filter){
+  if (filter === "all") return true;
+  if (filter === "unrated") return !card.status;
+  return card.status === filter;
+}
+function buildCategoryOptionsHtml(selectedId){
+  let html = `<option value="" ${!selectedId ? "selected" : ""}>미분류</option>`;
+  allCategoriesFlatOrdered().forEach(o => {
+    const indent = "　".repeat(o.depth) + (o.depth > 0 ? "└ " : "");
+    html += `<option value="${o.id}" ${selectedId===o.id ? "selected" : ""}>${indent}${escapeHtml(o.name)}</option>`;
+  });
+  return html;
+}
+
+// ---------- state ----------
+let selectedCatId = null;   // null = 전체
+let currentFilter = "all";  // all | unrated | X | △ | O
+let currentTab = "study";   // study | manage | dash
+let studyIndex = 0;
+let revealShown = {};       // runtime only, per card id
+let editingAnswerId = null; // study view inline answer edit
+let editingCatId = null;    // sidebar category rename
+let addingSubcatFor = null; // sidebar: category id or "root"
+let editingCardId = null;   // manage form: editing existing card
+let showInlineNewCat = false;
+let formDraft = { title: "", categoryId: "", answer: "" };
+
+// ---------- sidebar ----------
+function catRowsHtml(parentId, depth){
+  return children(parentId).map(cat => {
+    const ids = new Set(descendantIds(cat.id));
+    const catCards = db.cards.filter(c => ids.has(c.categoryId));
+    const counts = statusCounts(catCards);
+    const pct = counts.total ? Math.round(counts.O / counts.total * 100) : 0;
+    const isActive = selectedCatId === cat.id;
+    const isEditing = editingCatId === cat.id;
+    const showAddForm = addingSubcatFor === cat.id;
+    return `
+      <div class="cat-item">
+        <div class="cat-row${isActive ? " active" : ""}" style="padding-left:${8 + depth*16}px" data-catid="${cat.id}">
+          ${isEditing
+            ? `<input class="cat-rename-input" id="catRenameInput" value="${escapeAttr(cat.name)}" />`
+            : `<span class="name">${escapeHtml(cat.name)}</span>`}
+          <span class="count">${counts.total ? `${counts.O}/${counts.total}` : ""}</span>
+          <span class="cat-actions">
+            ${isEditing
+              ? `<button class="icon-btn" data-savecat="${cat.id}" title="저장">✓</button><button class="icon-btn" data-cancelcat="1" title="취소">✕</button>`
+              : `<button class="icon-btn" data-addsub="${cat.id}" title="하위 카테고리 추가">+</button><button class="icon-btn" data-editcat="${cat.id}" title="이름 수정">✎</button><button class="icon-btn" data-delcat="${cat.id}" title="삭제">🗑</button>`}
+          </span>
+        </div>
+        ${counts.total ? `<div class="cat-bar" style="margin-left:${8 + depth*16}px"><i style="width:${pct}%"></i></div>` : ""}
+        ${showAddForm ? `
+          <div class="add-cat-row" style="padding-left:${8 + (depth+1)*16}px">
+            <input type="text" id="newSubcatInput" placeholder="새 카테고리 이름" />
+            <button class="btn primary sm" data-confirmadd="${cat.id}">추가</button>
+            <button class="btn ghost sm" data-canceladd="1">취소</button>
+          </div>` : ""}
+        ${catRowsHtml(cat.id, depth+1)}
+      </div>
+    `;
+  }).join("");
+}
+
+function renderSidebar(){
+  const nav = document.getElementById("sidebar");
+  const allCounts = statusCounts(db.cards);
+  const allPct = allCounts.total ? Math.round(allCounts.O / allCounts.total * 100) : 0;
+  const rootAddShown = addingSubcatFor === "root";
+
+  nav.innerHTML = `
+    <div class="cat-root-row${selectedCatId===null ? " active":""}" id="catAllRow">
+      <span class="name">전체</span>
+      <span class="count">${allCounts.total ? `${allCounts.O}/${allCounts.total}` : ""}</span>
+    </div>
+    ${allCounts.total ? `<div class="cat-bar"><i style="width:${allPct}%"></i></div>` : ""}
+    ${catRowsHtml(null, 0)}
+    <div class="sidebar-footer">
+      ${rootAddShown ? `
+        <div class="add-cat-row">
+          <input type="text" id="newSubcatInput" placeholder="새 최상위 카테고리 이름" />
+          <button class="btn primary sm" data-confirmadd="root">추가</button>
+          <button class="btn ghost sm" data-canceladd="1">취소</button>
+        </div>
+      ` : `<button class="btn ghost sm" id="addRootCatBtn" style="width:100%">+ 새 카테고리</button>`}
+      ${db.categories.length===0 && db.cards.length===0 ? `<div class="sidebar-hint">카테고리와 카드가 없습니다. 위 버튼으로 카테고리를 먼저 만들거나, '카드 관리' 탭에서 바로 카드를 추가해보세요.</div>` : ""}
+    </div>
+  `;
+
+  document.getElementById("catAllRow").onclick = () => {
+    selectedCatId = null; studyIndex = 0;
+    if (!editingCardId) formDraft.categoryId = "";
+    render();
+  };
+
+  nav.querySelectorAll(".cat-row").forEach(row => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".cat-actions") || e.target.tagName === "INPUT") return;
+      selectedCatId = row.dataset.catid; studyIndex = 0;
+      if (!editingCardId) formDraft.categoryId = selectedCatId;
+      render();
+    });
+  });
+
+  nav.querySelectorAll("[data-addsub]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); addingSubcatFor = b.dataset.addsub; render();
+    const inp = document.getElementById("newSubcatInput"); if (inp) inp.focus();
+  });
+  const addRootBtn = document.getElementById("addRootCatBtn");
+  if (addRootBtn) addRootBtn.onclick = () => {
+    addingSubcatFor = "root"; render();
+    const inp = document.getElementById("newSubcatInput"); if (inp) inp.focus();
+  };
+  nav.querySelectorAll("[data-canceladd]").forEach(b => b.onclick = (e) => { e.stopPropagation(); addingSubcatFor = null; render(); });
+  nav.querySelectorAll("[data-confirmadd]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const inp = document.getElementById("newSubcatInput");
+    const name = (inp.value || "").trim();
+    if (!name) return;
+    const parentId = b.dataset.confirmadd === "root" ? null : b.dataset.confirmadd;
+    const newCat = { id: uid("cat"), name, parentId };
+    db.categories.push(newCat);
+    saveDB();
+    addingSubcatFor = null;
+    render();
+  });
+
+  nav.querySelectorAll("[data-editcat]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); editingCatId = b.dataset.editcat; render();
+    const inp = document.getElementById("catRenameInput"); if (inp) { inp.focus(); inp.select(); }
+  });
+  nav.querySelectorAll("[data-cancelcat]").forEach(b => b.onclick = (e) => { e.stopPropagation(); editingCatId = null; render(); });
+  nav.querySelectorAll("[data-savecat]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const inp = document.getElementById("catRenameInput");
+    const name = (inp.value || "").trim();
+    if (name) { const cat = categoryById(b.dataset.savecat); cat.name = name; saveDB(); }
+    editingCatId = null; render();
+  });
+  nav.querySelectorAll("[data-delcat]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const id = b.dataset.delcat;
+    const hasChildren = children(id).length > 0;
+    const hasCards = db.cards.some(c => c.categoryId === id);
+    if (hasChildren || hasCards) { alert("하위 카테고리나 카드가 있어 삭제할 수 없습니다. 먼저 비워주세요."); return; }
+    if (!confirm("이 카테고리를 삭제할까요?")) return;
+    db.categories = db.categories.filter(c => c.id !== id);
+    if (selectedCatId === id) selectedCatId = null;
+    saveDB(); render();
+  });
+}
+
+// ---------- study view ----------
+function renderStudy(){
+  const view = document.getElementById("studyView");
+  const list = cardsIn(selectedCatId).filter(c => matchesFilter(c, currentFilter));
+
+  if (!list.length) {
+    view.innerHTML = `
+      <div class="card empty-state">
+        <div class="big">📭</div>
+        ${db.cards.length === 0
+          ? `아직 만든 암기카드가 없습니다.<br>'카드 관리' 탭에서 첫 카드를 만들어보세요.`
+          : `이 카테고리·필터에 해당하는 카드가 없습니다.<br>사이드바나 필터를 바꿔보세요.`}
+      </div>`;
+    return;
+  }
+  if (studyIndex >= list.length) studyIndex = 0;
+  if (studyIndex < 0) studyIndex = list.length - 1;
+  const card = list[studyIndex];
+  const shown = revealShown[card.id] !== undefined ? revealShown[card.id] : !!card.status;
+  const editingAnswer = editingAnswerId === card.id;
+  const breadcrumb = card.categoryId ? categoryPath(card.categoryId).join(" › ") : "미분류";
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="sec-label">${escapeHtml(breadcrumb)}</div>
+          <div class="badge-row" style="margin-top:4px;">
+            <span style="font-family:var(--font-serif);font-weight:700;font-size:1.15rem;">${escapeHtml(card.title)}</span>
+          </div>
+        </div>
+        <span class="status-badge status-${card.status || "none"}">${statusText(card.status)}</span>
+      </div>
+
+      <label class="field-label">내 답 (직접 인출)</label>
+      <textarea class="recall-input" id="studyRecallInput" placeholder="기억나는 내용을 최대한 써 보세요...">${escapeHtml(card.draft || "")}</textarea>
+
+      <div class="actions-row">
+        ${!shown ? `<button class="btn primary" id="studyRevealBtn">정답 보기</button>` : `<button class="btn ghost" id="studyHideBtn">정답 숨기기</button>`}
+        <button class="btn ghost" id="studyClearBtn">입력 지우기</button>
+      </div>
+
+      ${shown ? `
+      <div class="reveal">
+        <div class="reveal-head">
+          <span class="tag">모범답안</span>
+          ${!editingAnswer ? `<button class="pencil-btn" id="studyEditAnswerBtn">✎ 수정</button>` : `<button class="pencil-btn" id="studySaveAnswerBtn">저장</button>`}
+        </div>
+        ${editingAnswer
+          ? `<textarea class="answer-input" id="studyAnswerEdit" style="min-height:130px;">${escapeHtml(card.answer || "")}</textarea>`
+          : `<div class="answer-text">${renderAnswerHtml(card.answer)}</div>`}
+      </div>
+      <div class="grade-row">
+        <span class="label">자가 채점</span>
+        <button class="grade-btn" data-g="X">✕ 다시</button>
+        <button class="grade-btn" data-g="△">△ 애매</button>
+        <button class="grade-btn" data-g="O">○ 완벽</button>
+      </div>` : ""}
+
+      <div class="nav-row">
+        <div class="progress-mini">${studyIndex+1} / ${list.length}</div>
+        <div class="right">
+          <button class="btn" id="studyPrevBtn">← 이전</button>
+          <button class="btn" id="studyNextBtn">다음 →</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const input = document.getElementById("studyRecallInput");
+  input.addEventListener("input", () => { card.draft = input.value; saveDB(); });
+
+  const revealBtn = document.getElementById("studyRevealBtn");
+  if (revealBtn) revealBtn.onclick = () => { revealShown[card.id] = true; renderStudy(); };
+  const hideBtn = document.getElementById("studyHideBtn");
+  if (hideBtn) hideBtn.onclick = () => { revealShown[card.id] = false; renderStudy(); };
+  document.getElementById("studyClearBtn").onclick = () => { card.draft = ""; saveDB(); renderStudy(); };
+
+  const editAnswerBtn = document.getElementById("studyEditAnswerBtn");
+  if (editAnswerBtn) editAnswerBtn.onclick = () => { editingAnswerId = card.id; renderStudy(); };
+  const saveAnswerBtn = document.getElementById("studySaveAnswerBtn");
+  if (saveAnswerBtn) saveAnswerBtn.onclick = () => {
+    card.answer = document.getElementById("studyAnswerEdit").value;
+    editingAnswerId = null; saveDB(); renderStudy();
+  };
+
+  view.querySelectorAll(".grade-btn").forEach(b => {
+    if (card.status === b.dataset.g) b.classList.add("active");
+    b.onclick = () => {
+      card.status = card.status === b.dataset.g ? null : b.dataset.g;
+      card.updatedAt = Date.now();
+      saveDB(); render();
+    };
+  });
+
+  document.getElementById("studyPrevBtn").onclick = () => { studyIndex = (studyIndex - 1 + list.length) % list.length; renderStudy(); };
+  document.getElementById("studyNextBtn").onclick = () => { studyIndex = (studyIndex + 1) % list.length; renderStudy(); };
+}
+
+// ---------- manage view ----------
+function renderManage(){
+  const view = document.getElementById("manageView");
+  const list = cardsIn(selectedCatId).filter(c => matchesFilter(c, currentFilter))
+    .slice().sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+
+  view.innerHTML = `
+    <div class="card form-card">
+      <h3>${editingCardId ? "카드 수정" : "새 카드 만들기"}</h3>
+      <label class="field-label">제목</label>
+      <input type="text" class="text-input" id="cardTitleInput" placeholder="예: 세포호흡의 3단계" value="${escapeAttr(formDraft.title)}" />
+
+      <label class="field-label">카테고리</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select class="select-input" id="cardCategorySelect">${buildCategoryOptionsHtml(formDraft.categoryId)}</select>
+        <button class="btn ghost sm" id="cardNewCatBtn" style="flex:none;">+ 새 카테고리</button>
+      </div>
+      ${showInlineNewCat ? `
+        <div class="add-cat-row cat-add-inline">
+          <input type="text" id="cardInlineNewCatInput" placeholder="새 카테고리 이름" />
+          <button class="btn primary sm" id="cardInlineNewCatConfirm">추가</button>
+          <button class="btn ghost sm" id="cardInlineNewCatCancel">취소</button>
+        </div>` : ""}
+
+      <label class="field-label">모범답안 (인출 후 대조할 내용)</label>
+      <textarea class="answer-input" id="cardAnswerInput" placeholder="정답으로 확인할 내용을 입력하세요">${escapeHtml(formDraft.answer)}</textarea>
+
+      <div class="actions-row">
+        <button class="btn primary" id="cardSaveBtn">${editingCardId ? "수정 저장" : "카드 추가"}</button>
+        ${editingCardId ? `<button class="btn ghost" id="cardCancelEditBtn">취소</button>` : ""}
+      </div>
+    </div>
+
+    <div class="list-head">
+      <h3>${selectedCatId ? escapeHtml(categoryPath(selectedCatId).join(" › ")) : "전체"} 카드 목록</h3>
+      <span class="count">${list.length}개</span>
+    </div>
+    <div class="card-list">
+      ${list.length ? list.map(card => {
+        const breadcrumb = card.categoryId ? categoryPath(card.categoryId).join(" › ") : "미분류";
+        return `
+        <div class="card-row">
+          <div class="crow-main">
+            <div class="crow-title">${escapeHtml(card.title)}</div>
+            <div class="crow-breadcrumb">${escapeHtml(breadcrumb)}</div>
+          </div>
+          <span class="status-badge status-${card.status || "none"}">${statusText(card.status)}</span>
+          <div class="crow-actions">
+            <button class="btn ghost sm" data-editcard="${card.id}">수정</button>
+            <button class="btn ghost sm" data-delcard="${card.id}">삭제</button>
+          </div>
+        </div>`;
+      }).join("") : `<div class="card empty-state">해당하는 카드가 없습니다.</div>`}
+    </div>
+  `;
+
+  document.getElementById("cardTitleInput").addEventListener("input", e => formDraft.title = e.target.value);
+  document.getElementById("cardCategorySelect").addEventListener("change", e => formDraft.categoryId = e.target.value);
+  document.getElementById("cardAnswerInput").addEventListener("input", e => formDraft.answer = e.target.value);
+
+  document.getElementById("cardNewCatBtn").onclick = () => { showInlineNewCat = !showInlineNewCat; renderManage(); };
+  const inlineConfirm = document.getElementById("cardInlineNewCatConfirm");
+  if (inlineConfirm) inlineConfirm.onclick = () => {
+    const inp = document.getElementById("cardInlineNewCatInput");
+    const name = (inp.value || "").trim();
+    if (!name) return;
+    const parentId = formDraft.categoryId || null;
+    const newCat = { id: uid("cat"), name, parentId };
+    db.categories.push(newCat);
+    saveDB();
+    formDraft.categoryId = newCat.id;
+    showInlineNewCat = false;
+    renderManage();
+    renderSidebar();
+  };
+  const inlineCancel = document.getElementById("cardInlineNewCatCancel");
+  if (inlineCancel) inlineCancel.onclick = () => { showInlineNewCat = false; renderManage(); };
+
+  document.getElementById("cardSaveBtn").onclick = () => {
+    const title = formDraft.title.trim();
+    if (!title) { alert("제목을 입력해주세요."); return; }
+    const categoryId = formDraft.categoryId || null;
+    const answer = formDraft.answer;
+    if (editingCardId) {
+      const card = db.cards.find(c => c.id === editingCardId);
+      Object.assign(card, { title, categoryId, answer, updatedAt: Date.now() });
+      editingCardId = null;
+    } else {
+      db.cards.push({ id: uid("card"), title, categoryId, answer, draft: "", status: null, createdAt: Date.now(), updatedAt: Date.now() });
+    }
+    formDraft = { title: "", categoryId: categoryId || "", answer: "" };
+    showInlineNewCat = false;
+    saveDB();
+    render();
+  };
+  const cancelEditBtn = document.getElementById("cardCancelEditBtn");
+  if (cancelEditBtn) cancelEditBtn.onclick = () => {
+    editingCardId = null; formDraft = { title: "", categoryId: selectedCatId || "", answer: "" }; renderManage();
+  };
+
+  view.querySelectorAll("[data-editcard]").forEach(b => b.onclick = () => {
+    const card = db.cards.find(c => c.id === b.dataset.editcard);
+    editingCardId = card.id;
+    formDraft = { title: card.title, categoryId: card.categoryId || "", answer: card.answer || "" };
+    showInlineNewCat = false;
+    renderManage();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  view.querySelectorAll("[data-delcard]").forEach(b => b.onclick = () => {
+    if (!confirm("이 카드를 삭제할까요? 채점 기록도 함께 사라집니다.")) return;
+    db.cards = db.cards.filter(c => c.id !== b.dataset.delcard);
+    if (editingCardId === b.dataset.delcard) { editingCardId = null; formDraft = { title:"", categoryId: selectedCatId||"", answer:"" }; }
+    saveDB(); render();
+  });
+}
+
+// ---------- dashboard view ----------
+function renderDash(){
+  const view = document.getElementById("dashView");
+  if (!db.cards.length) {
+    view.innerHTML = `<div class="card empty-state"><div class="big">📊</div>카드를 만들면 이곳에 전체 진행 현황이 표시됩니다.</div>`;
+    return;
+  }
+  const counts = statusCounts(db.cards);
+
+  const summaryHtml = `
+    <div class="dash-summary">
+      <span class="dash-chip"><i class="dot-O"></i>완벽 ${counts.O}</span>
+      <span class="dash-chip"><i class="dot-△"></i>애매 ${counts["△"]}</span>
+      <span class="dash-chip"><i class="dot-X"></i>다시 ${counts.X}</span>
+      <span class="dash-chip"><i class="dot-none"></i>미채점 ${counts.unrated}</span>
+    </div>
+  `;
+
+  const groups = [];
+  allCategoriesFlatOrdered().forEach(o => {
+    const cardsHere = db.cards.filter(c => c.categoryId === o.id);
+    if (cardsHere.length) groups.push({ label: categoryPath(o.id).join(" › "), catId: o.id, cards: cardsHere });
+  });
+  const uncategorized = db.cards.filter(c => !c.categoryId);
+  if (uncategorized.length) groups.push({ label: "미분류", catId: null, cards: uncategorized });
+
+  const sectionsHtml = groups.map(g => {
+    const done = g.cards.filter(c => c.status === "O").length;
+    const tiles = g.cards.map((c, i) => {
+      const cls = c.status ? `dash-${c.status}` : "";
+      return `<button class="dash-tile ${cls}" title="${escapeAttr(c.title)}" data-cardid="${c.id}" data-catid="${g.catId === null ? "" : g.catId}">${i+1}</button>`;
+    }).join("");
+    return `
+      <div class="dash-section">
+        <div class="dash-section-head">
+          <h3>${escapeHtml(g.label)}</h3>
+          <span class="count">${done} / ${g.cards.length} 완벽</span>
+        </div>
+        <div class="dash-grid">${tiles}</div>
+      </div>
+    `;
+  }).join("");
+
+  view.innerHTML = summaryHtml + sectionsHtml;
+
+  view.querySelectorAll(".dash-tile").forEach(btn => {
+    btn.onclick = () => {
+      const catId = btn.dataset.catid || null;
+      const cardId = btn.dataset.cardid;
+      selectedCatId = catId;
+      currentFilter = "all";
+      const list = cardsIn(selectedCatId).filter(c => matchesFilter(c, currentFilter));
+      const idx = list.findIndex(c => c.id === cardId);
+      studyIndex = idx >= 0 ? idx : 0;
+      revealShown[cardId] = true;
+      currentTab = "study";
+      render();
+    };
+  });
+}
+
+// ---------- orchestration ----------
+function renderStatPill(){
+  const counts = statusCounts(db.cards);
+  document.getElementById("overallStat").textContent = `${counts.O} / ${counts.total} 완벽`;
+  document.getElementById("overallFill").style.width = (counts.total ? counts.O / counts.total * 100 : 0) + "%";
+}
+
+function render(){
+  renderSidebar();
+  document.getElementById("filterSelect").value = currentFilter;
+  document.getElementById("tabStudy").classList.toggle("active", currentTab === "study");
+  document.getElementById("tabManage").classList.toggle("active", currentTab === "manage");
+  document.getElementById("tabDash").classList.toggle("active", currentTab === "dash");
+  document.getElementById("studyView").style.display = currentTab === "study" ? "" : "none";
+  document.getElementById("manageView").style.display = currentTab === "manage" ? "" : "none";
+  document.getElementById("dashView").style.display = currentTab === "dash" ? "" : "none";
+  if (currentTab === "study") renderStudy();
+  else if (currentTab === "manage") renderManage();
+  else renderDash();
+  renderStatPill();
+}
+
+document.getElementById("tabStudy").onclick = () => { currentTab = "study"; render(); };
+document.getElementById("tabManage").onclick = () => {
+  currentTab = "manage";
+  if (!editingCardId) formDraft = { title: "", categoryId: selectedCatId || "", answer: "" };
+  render();
+};
+document.getElementById("tabDash").onclick = () => { currentTab = "dash"; render(); };
+document.getElementById("filterSelect").onchange = (e) => { currentFilter = e.target.value; studyIndex = 0; render(); };
+
+render();
+</script>
