@@ -7,6 +7,8 @@
   v1.3 (2026-07-26) — Firebase Google 로그인 + Firestore 클라우드 동기화, 로그인 게이트 추가 (기기 간 이어서 사용).
     firebaseConfig를 채우기 전까지는 게이트 없이 이 기기에만 저장되는 기존 방식 그대로 동작함.
   v1.3.1 (2026-07-26) — 실제 Firebase 프로젝트(flashcards-1c668) 설정값 반영, 로그인 게이트 활성화
+  v1.4.0 (2026-07-26) — 카드 정렬 순서(order) 도입: 학습 순서가 마인드맵 순서와 항상 동일하게 맞춰지고,
+    마인드맵에서 카드 옆 ▲▼ 버튼으로 순서를 직접 바꿀 수 있음
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -115,6 +117,8 @@
     font-size: 0.72rem; padding: 3px 5px; border-radius: 5px; line-height: 1;
   }
   button.icon-btn:hover { background: var(--surface); color: var(--ink); }
+  button.icon-btn:disabled { opacity: 0.25; cursor: default; }
+  button.icon-btn:disabled:hover { background: transparent; }
   .cat-bar { height: 3px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 1px 8px 4px; }
   .cat-bar i { display: block; height: 100%; background: var(--green); }
   .cat-rename-input {
@@ -282,12 +286,15 @@
   .mm-card-dot.st-O { background: var(--green); opacity: 1; }
   .mm-card-dot.st-△ { background: var(--amber); opacity: 1; }
   .mm-card-dot.st-X { background: var(--red); opacity: 1; }
-  .mm-card-title { line-height: 1.55; word-break: break-word; }
+  .mm-card-title { flex: 1; line-height: 1.55; word-break: break-word; }
+  .mm-card-order-btns { display: none; gap: 2px; flex: none; }
+  .mm-card-row:hover .mm-card-order-btns { display: flex; }
 
   @media print {
     body * { visibility: hidden; }
     #mindmapPrintArea, #mindmapPrintArea * { visibility: visible; }
     #mindmapPrintArea { position: absolute; top: 0; left: 0; width: 100%; box-shadow: none; border: none; padding: 0; }
+    .mm-card-order-btns { display: none !important; }
     .mm-print-header { display: block; font-family: var(--font-serif); font-size: 1.1rem; font-weight: 700; margin-bottom: 14px; }
     .mm-cat-row, .mm-card-row { cursor: default; }
   }
@@ -366,7 +373,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.3.1";
+const APP_VERSION = "1.4.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -437,6 +444,23 @@ function cardsIn(catId){
   if (catId === null) return db.cards;
   const ids = new Set(descendantIds(catId));
   return db.cards.filter(c => ids.has(c.categoryId));
+}
+function cardSortKey(card){ return card.order != null ? card.order : (card.createdAt || 0); }
+function cardsInCategorySorted(catId){
+  return db.cards.filter(c => c.categoryId === catId).sort((a,b) => cardSortKey(a) - cardSortKey(b));
+}
+function moveCardOrder(cardId, direction){
+  const card = db.cards.find(c => c.id === cardId);
+  if (!card) return;
+  const siblings = cardsInCategorySorted(card.categoryId);
+  const idx = siblings.findIndex(c => c.id === cardId);
+  const swapIdx = idx + direction;
+  if (idx === -1 || swapIdx < 0 || swapIdx >= siblings.length) return;
+  const other = siblings[swapIdx];
+  if (card.order == null) card.order = cardSortKey(card);
+  if (other.order == null) other.order = cardSortKey(other);
+  const tmp = card.order; card.order = other.order; other.order = tmp;
+  saveDB();
 }
 function statusCounts(arr){
   const r = { total: arr.length, unrated: 0, X: 0, "△": 0, O: 0 };
@@ -521,11 +545,11 @@ function studyBaseCardIds(){
   const ids = [];
   allCategoriesFlatOrdered().forEach(o => {
     if (selected.has(o.id)) {
-      db.cards.filter(c => c.categoryId === o.id).sort((a,b) => (a.createdAt||0) - (b.createdAt||0)).forEach(c => ids.push(c.id));
+      cardsInCategorySorted(o.id).forEach(c => ids.push(c.id));
     }
   });
   if (studyScope.all || studyScope.includeUncategorized) {
-    db.cards.filter(c => !c.categoryId).sort((a,b) => (a.createdAt||0) - (b.createdAt||0)).forEach(c => ids.push(c.id));
+    cardsInCategorySorted(null).forEach(c => ids.push(c.id));
   }
   return ids;
 }
@@ -1045,18 +1069,21 @@ function renderDash(){
 }
 
 // ---------- mindmap (outline) view ----------
+function cardKidsFor(catId){
+  const cardsHere = cardsInCategorySorted(catId);
+  return cardsHere.map((c, i) => ({
+    type: "card", id: c.id, name: c.title, status: c.status,
+    siblingIndex: i, siblingCount: cardsHere.length, children: [],
+  }));
+}
 function buildMindmapTree(){
   function catNode(cat){
     const kids = children(cat.id).map(catNode);
-    const cardKids = db.cards.filter(c => c.categoryId === cat.id)
-      .sort((a,b) => (a.createdAt||0) - (b.createdAt||0))
-      .map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
+    const cardKids = cardKidsFor(cat.id);
     return { type: "category", id: cat.id, name: cat.name, children: [...kids, ...cardKids] };
   }
   const topCats = children(null).map(catNode);
-  const uncatCards = db.cards.filter(c => !c.categoryId)
-    .sort((a,b) => (a.createdAt||0) - (b.createdAt||0))
-    .map(c => ({ type: "card", id: c.id, name: c.title, status: c.status, children: [] }));
+  const uncatCards = cardKidsFor(null);
   const rootChildren = [...topCats];
   if (uncatCards.length) rootChildren.push({ type: "category", id: null, name: "미분류", children: uncatCards });
   return { type: "root", id: null, name: "전체", children: rootChildren };
@@ -1081,10 +1108,16 @@ function mmOutlineHtml(node){
     `;
   }
   const stCls = node.status ? `st-${node.status}` : "st-none";
+  const canUp = node.siblingIndex > 0;
+  const canDown = node.siblingIndex < node.siblingCount - 1;
   return `
     <div class="mm-card-row ${stCls}" data-cardid="${node.id}">
       <span class="mm-card-dot ${stCls}"></span>
       <span class="mm-card-title">${escapeHtml(node.name)}</span>
+      <span class="mm-card-order-btns">
+        <button class="icon-btn" data-moveup="${node.id}" title="위로 이동" ${canUp ? "" : "disabled"}>▲</button>
+        <button class="icon-btn" data-movedown="${node.id}" title="아래로 이동" ${canDown ? "" : "disabled"}>▼</button>
+      </span>
     </div>
   `;
 }
@@ -1136,6 +1169,17 @@ function renderMindmap(){
       currentTab = "study";
       render();
     };
+  });
+
+  view.querySelectorAll("[data-moveup]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    moveCardOrder(b.dataset.moveup, -1);
+    renderMindmap();
+  });
+  view.querySelectorAll("[data-movedown]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    moveCardOrder(b.dataset.movedown, 1);
+    renderMindmap();
   });
 
   document.getElementById("mmPdfBtn").onclick = () => { window.print(); };
