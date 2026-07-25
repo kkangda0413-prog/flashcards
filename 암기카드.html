@@ -13,6 +13,7 @@
     마인드맵의 ▲▼ 버튼을 드래그 핸들(⠿)로 교체하여 카드/카테고리를 원하는 위치로 직접 드래그해서 옮길 수 있음
   v1.6.0 (2026-07-26) — 모범답안에 볼드체 강조 추가. **텍스트** 로 감싸면 굵게 표시되고,
     답안 입력칸 위 B 버튼으로 선택한 텍스트를 한 번에 감쌀 수 있음
+  v1.6.1 (2026-07-26) — 답안 입력칸에서 Ctrl+B(Mac: Cmd+B) 단축키로도 볼드체 적용 가능
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -384,7 +385,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.6.1";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -450,6 +451,14 @@ function wrapSelectionBold(ta){
   ta.focus();
   ta.setSelectionRange(newStart, newEnd);
   ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+function bindBoldShortcut(ta){
+  ta.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      wrapSelectionBold(ta);
+    }
+  });
 }
 
 // ---------- category helpers ----------
@@ -871,7 +880,7 @@ function renderStudy(){
         ${editingAnswer
           ? `<div class="answer-toolbar">
                <button type="button" class="btn ghost sm" id="studyAnswerBoldBtn"><b>B</b></button>
-               <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요</span>
+               <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요 (Ctrl+B)</span>
              </div>
              <textarea class="answer-input" id="studyAnswerEdit" style="min-height:130px;">${escapeHtml(card.answer || "")}</textarea>`
           : `<div class="answer-text">${renderAnswerHtml(card.answer)}</div>`}
@@ -910,7 +919,10 @@ function renderStudy(){
     editingAnswerId = null; saveDB(); renderStudy();
   };
   const studyAnswerBoldBtn = document.getElementById("studyAnswerBoldBtn");
-  if (studyAnswerBoldBtn) studyAnswerBoldBtn.onclick = () => wrapSelectionBold(document.getElementById("studyAnswerEdit"));
+  if (studyAnswerBoldBtn) {
+    studyAnswerBoldBtn.onclick = () => wrapSelectionBold(document.getElementById("studyAnswerEdit"));
+    bindBoldShortcut(document.getElementById("studyAnswerEdit"));
+  }
 
   view.querySelectorAll(".grade-btn").forEach(b => {
     if (card.status === b.dataset.g) b.classList.add("active");
@@ -954,7 +966,7 @@ function renderManage(){
       <label class="field-label">모범답안 (인출 후 대조할 내용)</label>
       <div class="answer-toolbar">
         <button type="button" class="btn ghost sm" id="cardAnswerBoldBtn"><b>B</b></button>
-        <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요</span>
+        <span class="answer-toolbar-hint">**텍스트**로 감싸면 볼드체로 표시돼요 (Ctrl+B)</span>
       </div>
       <textarea class="answer-input" id="cardAnswerInput" placeholder="정답으로 확인할 내용을 입력하세요">${escapeHtml(formDraft.answer)}</textarea>
 
@@ -991,6 +1003,7 @@ function renderManage(){
   document.getElementById("cardCategorySelect").addEventListener("change", e => formDraft.categoryId = e.target.value);
   document.getElementById("cardAnswerInput").addEventListener("input", e => formDraft.answer = e.target.value);
   document.getElementById("cardAnswerBoldBtn").onclick = () => wrapSelectionBold(document.getElementById("cardAnswerInput"));
+  bindBoldShortcut(document.getElementById("cardAnswerInput"));
 
   document.getElementById("cardNewCatBtn").onclick = () => { showInlineNewCat = !showInlineNewCat; renderManage(); };
   const inlineConfirm = document.getElementById("cardInlineNewCatConfirm");
