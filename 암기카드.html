@@ -18,6 +18,8 @@
     실제 굵은 글씨로 보이는 위지윅(WYSIWYG) 볼드 편집으로 전환. 저장 형식은 기존과 동일(마크다운 **문자열).
   v1.8.0 (2026-07-26) — 카드 중요도(★1~5) 추가: 카드 관리에서 별점 설정,
     마인드맵 카드 이름 옆에 별점 표시, 학습 범위 패널에서 중요도별로 필터링해 학습 가능
+  v1.9.0 (2026-07-26) — 학습 화면 "내 답" 인출 칸에 제출하기 버튼 추가.
+    제출한 답변은 날짜/시간과 함께 카드별 이력으로 저장되어 나중에 열람·삭제 가능
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -187,6 +189,13 @@
   }
   .answer-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .answer-toolbar-hint { font-size: 0.72rem; color: var(--ink-faint); }
+
+  .history-section { margin-top: 14px; }
+  .history-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .history-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; }
+  .history-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+  .history-date { font-size: 0.72rem; color: var(--ink-faint); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .history-text { font-size: 0.87rem; line-height: 1.6; color: var(--ink-soft); white-space: pre-wrap; word-break: break-word; }
 
   .actions-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
   button.btn { border-radius: 9px; border: 1px solid var(--border); background: var(--surface); padding: 9px 16px; font-size: 0.85rem; cursor: pointer; color: var(--ink); }
@@ -424,7 +433,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.9.0";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -470,6 +479,11 @@ function renderAnswerHtml(text){
   return lines.map(line => `<p>${applyBold(escapeHtml(line))}</p>`).join("");
 }
 function statusText(s){ return s === "O" ? "완벽" : s === "△" ? "애매" : s === "X" ? "다시" : "미채점"; }
+function formatDateTime(ts){
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 // ---------- WYSIWYG bold editing (contenteditable) ----------
 // Stored answers stay plain text with a **bold** markdown-style convention.
 // The edit UI is a contenteditable div that shows real bold live; we convert
@@ -646,6 +660,7 @@ function saveStudyScope(){
 let studyScope = loadStudyScope();
 let shuffleOrder = null;   // runtime only: fixed random order while shuffle is on
 let scopePanelOpen = false;
+let historyOpen = false;
 
 function materializeScopeIfAll(){
   if (studyScope.all) {
@@ -975,7 +990,25 @@ function renderStudy(){
       <div class="actions-row">
         ${!shown ? `<button class="btn primary" id="studyRevealBtn">정답 보기</button>` : `<button class="btn ghost" id="studyHideBtn">정답 숨기기</button>`}
         <button class="btn ghost" id="studyClearBtn">입력 지우기</button>
+        <button class="btn ghost" id="studySubmitBtn">제출하기</button>
       </div>
+
+      ${(card.history && card.history.length) ? `
+      <div class="history-section">
+        <button class="pencil-btn" id="historyToggleBtn">${historyOpen ? "▴" : "▾"} 지난 답변 (${card.history.length})</button>
+        ${historyOpen ? `
+        <div class="history-list">
+          ${card.history.map(h => `
+            <div class="history-item">
+              <div class="history-meta">
+                <span class="history-date">${formatDateTime(h.submittedAt)}</span>
+                <button class="icon-btn" data-delhist="${h.id}" title="삭제">🗑</button>
+              </div>
+              <div class="history-text">${escapeHtml(h.text)}</div>
+            </div>
+          `).join("")}
+        </div>` : ""}
+      </div>` : ""}
 
       ${shown ? `
       <div class="reveal">
@@ -1016,6 +1049,22 @@ function renderStudy(){
   const hideBtn = document.getElementById("studyHideBtn");
   if (hideBtn) hideBtn.onclick = () => { revealShown[card.id] = false; renderStudy(); };
   document.getElementById("studyClearBtn").onclick = () => { card.draft = ""; saveDB(); renderStudy(); };
+  document.getElementById("studySubmitBtn").onclick = () => {
+    const text = (card.draft || "").trim();
+    if (!text) { alert("제출할 내용이 없습니다. 먼저 답을 작성해주세요."); return; }
+    card.history = card.history || [];
+    card.history.unshift({ id: uid("hist"), text, submittedAt: Date.now() });
+    card.draft = "";
+    saveDB();
+    renderStudy();
+  };
+  const historyToggleBtn = document.getElementById("historyToggleBtn");
+  if (historyToggleBtn) historyToggleBtn.onclick = () => { historyOpen = !historyOpen; renderStudy(); };
+  view.querySelectorAll("[data-delhist]").forEach(b => b.onclick = () => {
+    if (!confirm("이 답변 기록을 삭제할까요?")) return;
+    card.history = (card.history || []).filter(h => h.id !== b.dataset.delhist);
+    saveDB(); renderStudy();
+  });
 
   const editAnswerBtn = document.getElementById("studyEditAnswerBtn");
   if (editAnswerBtn) editAnswerBtn.onclick = () => { editingAnswerId = card.id; renderStudy(); };
