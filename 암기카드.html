@@ -29,6 +29,9 @@
   v1.10.2 (2026-07-26) — Firebase Storage(유료 Blaze 필요)를 Cloudinary 무료 플랜(카드 등록 불필요)으로
     교체. 답변 이미지는 이제 Cloudinary에 업로드되고 Firestore에는 URL만 저장됨
   v1.10.3 (2026-07-26) — 실제 Cloudinary 계정(cloud name: l7rv6jby) 설정값 반영
+  v1.11.0 (2026-07-26) — 과목별 "보드" 여러 개 추가 기능. 상단에 보드 탭이 생겨 보드를
+    추가/이름변경/삭제하고 전환할 수 있음. 보드마다 카테고리·카드·학습이력이 완전히 분리됨.
+    기존 단일 보드 데이터는 "내 보드"로 자동 이전됨(데이터 손실 없음)
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -155,6 +158,34 @@
   .btn.sm { padding: 5px 10px; font-size: 0.78rem; border-radius: 7px; }
 
   .stage { min-width: 0; }
+
+  .board-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; align-items: center; }
+  .board-tab {
+    display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); cursor: pointer; font-size: 0.84rem;
+    color: var(--ink-soft); box-shadow: 0 1px 2px var(--shadow);
+  }
+  .board-tab:hover { background: var(--surface-2); }
+  .board-tab.active { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
+  .board-tab-name { white-space: nowrap; }
+  .board-tab-actions { display: none; gap: 2px; }
+  .board-tab:hover .board-tab-actions { display: flex; }
+  .board-tab.active .icon-btn { color: color-mix(in srgb, var(--surface) 75%, transparent); }
+  .board-tab.active .icon-btn:hover { background: color-mix(in srgb, var(--surface) 25%, transparent); color: var(--surface); }
+  .board-rename-input {
+    font-size: 0.84rem; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent);
+    background: var(--surface); color: var(--ink); width: 110px;
+  }
+  .board-tab-add {
+    background: transparent; border: 1px dashed var(--border); border-radius: 999px; padding: 7px 12px;
+    font-size: 0.84rem; color: var(--ink-faint); cursor: pointer;
+  }
+  .board-tab-add:hover { background: var(--surface-2); color: var(--ink-soft); }
+  .add-board-row { display: flex; gap: 6px; align-items: center; }
+  .add-board-row input {
+    font-size: 0.84rem; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--ink);
+  }
 
   .mode-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .mode-tabs { display: flex; gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
@@ -417,6 +448,8 @@
     </div>
   </div>
 
+  <div id="boardTabs" class="board-tabs"></div>
+
   <div class="layout">
     <nav class="sidebar" id="sidebar"></nav>
     <main class="stage">
@@ -446,41 +479,108 @@
 </div>
 
 <script>
-const APP_VERSION = "1.10.3";
+const APP_VERSION = "1.11.0";
 const STORE_KEY = "diy-flashcards-v1";
+const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
-function loadDB(){
+function uid(prefix){ return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8); }
+function makeBoard(name){ return { id: uid("board"), name, categories: [], cards: [] }; }
+
+// ---------- boards (과목별 여러 보드) ----------
+function loadAllBoards(){
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return { categories: [], cards: [] };
+    if (!raw) return [makeBoard("내 보드")];
     const parsed = JSON.parse(raw);
-    return { categories: parsed.categories || [], cards: parsed.cards || [] };
-  } catch(e) { return { categories: [], cards: [] }; }
+    if (Array.isArray(parsed.boards) && parsed.boards.length) {
+      return parsed.boards.map(b => ({
+        id: b.id || uid("board"),
+        name: b.name || "보드",
+        categories: b.categories || [],
+        cards: b.cards || [],
+      }));
+    }
+    // legacy single-board format: { categories, cards } — migrate into one board
+    if (parsed.categories || parsed.cards) {
+      return [{ id: uid("board"), name: "내 보드", categories: parsed.categories || [], cards: parsed.cards || [] }];
+    }
+    return [makeBoard("내 보드")];
+  } catch(e) { return [makeBoard("내 보드")]; }
 }
-let db = loadDB();
+let allBoards = loadAllBoards();
+let activeBoardId = localStorage.getItem(ACTIVE_BOARD_KEY);
+if (!activeBoardId || !allBoards.some(b => b.id === activeBoardId)) activeBoardId = allBoards[0].id;
+let db = allBoards.find(b => b.id === activeBoardId); // db = the ACTIVE board's {categories, cards}
+
 function saveDB(){
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(db));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ boards: allBoards }));
   } catch(e) {
     alert("저장 공간이 부족합니다. 이미지가 포함된 오래된 답변 기록을 삭제한 뒤 다시 시도해주세요.");
     return;
   }
-  if (window.__flashcards && window.__flashcards.onLocalChange) window.__flashcards.onLocalChange(db);
+  if (window.__flashcards && window.__flashcards.onLocalChange) window.__flashcards.onLocalChange({ boards: allBoards });
 }
 
 // Hook used by the optional Firebase sync module at the bottom of this file.
 window.__flashcards = {
-  getState: () => db,
-  replaceState: (newDB) => {
-    db = (newDB && (newDB.categories || newDB.cards)) ? { categories: newDB.categories || [], cards: newDB.cards || [] } : { categories: [], cards: [] };
-    localStorage.setItem(STORE_KEY, JSON.stringify(db));
+  getState: () => ({ boards: allBoards }),
+  replaceState: (newState) => {
+    const boards = (newState && Array.isArray(newState.boards) && newState.boards.length) ? newState.boards : [makeBoard("내 보드")];
+    allBoards = boards;
+    if (!allBoards.some(b => b.id === activeBoardId)) activeBoardId = allBoards[0].id;
+    db = allBoards.find(b => b.id === activeBoardId);
+    localStorage.setItem(STORE_KEY, JSON.stringify({ boards: allBoards }));
     render();
   },
   onLocalChange: null,
 };
 
-function uid(prefix){ return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8); }
+function setActiveBoard(boardId){
+  const board = allBoards.find(b => b.id === boardId);
+  if (!board) return;
+  activeBoardId = boardId;
+  localStorage.setItem(ACTIVE_BOARD_KEY, activeBoardId);
+  db = board;
+  selectedCatId = null;
+  studyIndex = 0;
+  revealShown = {};
+  editingAnswerId = null;
+  editingCatId = null;
+  addingSubcatFor = null;
+  editingCardId = null;
+  showInlineNewCat = false;
+  formDraft = { title: "", categoryId: "", answer: "", importance: 3 };
+  historyOpen = false;
+  pendingImage = null; pendingImageBlob = null; pendingImageCardId = null;
+  shuffleOrder = null;
+  studyScope = { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]) };
+  saveStudyScope();
+  currentTab = "study";
+  render();
+}
+function addBoard(name){
+  const board = makeBoard((name || "").trim() || "새 보드");
+  allBoards.push(board);
+  saveDB();
+  setActiveBoard(board.id);
+}
+function renameBoard(boardId, name){
+  const board = allBoards.find(b => b.id === boardId);
+  if (!board || !(name || "").trim()) { render(); return; }
+  board.name = name.trim();
+  saveDB();
+  render();
+}
+function deleteBoard(boardId){
+  if (allBoards.length <= 1) { alert("마지막 남은 보드는 삭제할 수 없습니다."); return; }
+  if (!confirm("이 보드와 그 안의 모든 카테고리·카드가 삭제됩니다. 계속할까요?")) return;
+  allBoards = allBoards.filter(b => b.id !== boardId);
+  saveDB();
+  if (activeBoardId === boardId) setActiveBoard(allBoards[0].id);
+  else render();
+}
 
 function escapeHtml(s){
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -675,6 +775,8 @@ let addingSubcatFor = null; // sidebar: category id or "root"
 let editingCardId = null;   // manage form: editing existing card
 let showInlineNewCat = false;
 let formDraft = { title: "", categoryId: "", answer: "", importance: 3 };
+let editingBoardId = null;  // board-tab rename
+let addingBoardOpen = false;
 
 // ---------- study scope (다중 카테고리 선택 + 셔플 + 중요도) ----------
 function loadStudyScope(){
@@ -1505,7 +1607,7 @@ function renderMindmap(){
       <button class="btn primary sm" id="mmPdfBtn">⬇ PDF로 다운로드</button>
     </div>
     <div class="mindmap-wrap" id="mindmapPrintArea">
-      <div class="mm-print-header">암기카드 — 전체 구조 (${today})</div>
+      <div class="mm-print-header">암기카드 — ${escapeHtml((allBoards.find(b => b.id === activeBoardId) || {}).name || "")} 전체 구조 (${today})</div>
       <div class="mm-outline">${mmOutlineHtml(root)}</div>
     </div>
   `;
@@ -1553,6 +1655,71 @@ function renderMindmap(){
   document.getElementById("mmPdfBtn").onclick = () => { window.print(); };
 }
 
+// ---------- board tabs ----------
+function renderBoardTabs(){
+  const container = document.getElementById("boardTabs");
+  const tabsHtml = allBoards.map(b => {
+    const active = b.id === activeBoardId;
+    const editing = editingBoardId === b.id;
+    return `
+      <div class="board-tab${active ? " active" : ""}" data-boardid="${b.id}">
+        ${editing
+          ? `<input class="board-rename-input" id="boardRenameInput" value="${escapeAttr(b.name)}" />`
+          : `<span class="board-tab-name">${escapeHtml(b.name)}</span>`}
+        <span class="board-tab-actions">
+          ${editing
+            ? `<button class="icon-btn" data-saveboard="${b.id}" title="저장">✓</button><button class="icon-btn" data-cancelboard="1" title="취소">✕</button>`
+            : `<button class="icon-btn" data-editboard="${b.id}" title="이름 수정">✎</button>${allBoards.length > 1 ? `<button class="icon-btn" data-delboard="${b.id}" title="삭제">🗑</button>` : ""}`}
+        </span>
+      </div>
+    `;
+  }).join("");
+  const addHtml = addingBoardOpen ? `
+    <div class="add-board-row">
+      <input type="text" id="newBoardInput" placeholder="새 보드 이름 (예: 생물, 화학...)" />
+      <button class="btn primary sm" id="confirmAddBoardBtn">추가</button>
+      <button class="btn ghost sm" id="cancelAddBoardBtn">취소</button>
+    </div>` : `<button class="board-tab board-tab-add" id="addBoardBtn">+ 새 보드</button>`;
+
+  container.innerHTML = tabsHtml + addHtml;
+
+  container.querySelectorAll(".board-tab[data-boardid]").forEach(tab => {
+    tab.addEventListener("click", (e) => {
+      if (e.target.closest(".board-tab-actions") || e.target.tagName === "INPUT") return;
+      setActiveBoard(tab.dataset.boardid);
+    });
+  });
+  container.querySelectorAll("[data-editboard]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); editingBoardId = b.dataset.editboard; render();
+    const inp = document.getElementById("boardRenameInput"); if (inp) { inp.focus(); inp.select(); }
+  });
+  container.querySelectorAll("[data-cancelboard]").forEach(b => b.onclick = (e) => { e.stopPropagation(); editingBoardId = null; render(); });
+  container.querySelectorAll("[data-saveboard]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const inp = document.getElementById("boardRenameInput");
+    const name = inp.value;
+    editingBoardId = null;
+    renameBoard(b.dataset.saveboard, name);
+  });
+  container.querySelectorAll("[data-delboard]").forEach(b => b.onclick = (e) => { e.stopPropagation(); deleteBoard(b.dataset.delboard); });
+
+  const addBtn = document.getElementById("addBoardBtn");
+  if (addBtn) addBtn.onclick = () => {
+    addingBoardOpen = true; render();
+    const inp = document.getElementById("newBoardInput"); if (inp) inp.focus();
+  };
+  const confirmBtn = document.getElementById("confirmAddBoardBtn");
+  if (confirmBtn) confirmBtn.onclick = () => {
+    const inp = document.getElementById("newBoardInput");
+    const name = (inp.value || "").trim();
+    if (!name) return;
+    addingBoardOpen = false;
+    addBoard(name);
+  };
+  const cancelBtn = document.getElementById("cancelAddBoardBtn");
+  if (cancelBtn) cancelBtn.onclick = () => { addingBoardOpen = false; render(); };
+}
+
 // ---------- orchestration ----------
 function renderStatPill(){
   const counts = statusCounts(db.cards);
@@ -1561,6 +1728,7 @@ function renderStatPill(){
 }
 
 function render(){
+  renderBoardTabs();
   renderSidebar();
   document.getElementById("filterSelect").value = currentFilter;
   document.getElementById("filterSelect").style.display = (currentTab === "study" || currentTab === "manage") ? "" : "none";
@@ -1755,7 +1923,7 @@ render();
       const snap = await getDoc(ref);
       suppressPush = true;
       if (snap.exists()) {
-        window.__flashcards.replaceState(snap.data().db || { categories: [], cards: [] });
+        window.__flashcards.replaceState(snap.data().db || {});
       } else {
         await setDoc(ref, { db: window.__flashcards.getState(), updatedAt: Date.now() });
       }
@@ -1764,7 +1932,7 @@ render();
       unsubSnapshot = onSnapshot(ref, (snap) => {
         if (!snap.exists()) return;
         suppressPush = true;
-        window.__flashcards.replaceState(snap.data().db || { categories: [], cards: [] });
+        window.__flashcards.replaceState(snap.data().db || {});
         suppressPush = false;
       });
     });
