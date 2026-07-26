@@ -32,6 +32,9 @@
   v1.11.0 (2026-07-26) — 과목별 "보드" 여러 개 추가 기능. 상단에 보드 탭이 생겨 보드를
     추가/이름변경/삭제하고 전환할 수 있음. 보드마다 카테고리·카드·학습이력이 완전히 분리됨.
     기존 단일 보드 데이터는 "내 보드"로 자동 이전됨(데이터 손실 없음)
+  v1.11.1 (2026-07-26) — [긴급 수정] 로그인 시 클라우드(Firestore)의 예전 형식 데이터를
+    빈 보드로 잘못 읽어들이던 버그 수정. 로컬 로드와 클라우드 동기화가 동일한
+    normalizeBoardsInput()을 공유하도록 통합하여 재발 방지
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -479,7 +482,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.11.1";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -488,24 +491,29 @@ function uid(prefix){ return prefix + "_" + Date.now().toString(36) + "_" + Math
 function makeBoard(name){ return { id: uid("board"), name, categories: [], cards: [] }; }
 
 // ---------- boards (과목별 여러 보드) ----------
+// Shared by local load AND cloud sync (replaceState) so both paths migrate the
+// same pre-multi-board {categories, cards} shape the same way — a mismatch here
+// previously caused cloud data to be misread as empty (see CHANGELOG v1.11.1).
+function normalizeBoardsInput(parsed){
+  if (parsed && Array.isArray(parsed.boards) && parsed.boards.length) {
+    return parsed.boards.map(b => ({
+      id: b.id || uid("board"),
+      name: b.name || "보드",
+      categories: b.categories || [],
+      cards: b.cards || [],
+    }));
+  }
+  // legacy single-board format: { categories, cards } — migrate into one board
+  if (parsed && (parsed.categories || parsed.cards)) {
+    return [{ id: uid("board"), name: "내 보드", categories: parsed.categories || [], cards: parsed.cards || [] }];
+  }
+  return [makeBoard("내 보드")];
+}
 function loadAllBoards(){
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return [makeBoard("내 보드")];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed.boards) && parsed.boards.length) {
-      return parsed.boards.map(b => ({
-        id: b.id || uid("board"),
-        name: b.name || "보드",
-        categories: b.categories || [],
-        cards: b.cards || [],
-      }));
-    }
-    // legacy single-board format: { categories, cards } — migrate into one board
-    if (parsed.categories || parsed.cards) {
-      return [{ id: uid("board"), name: "내 보드", categories: parsed.categories || [], cards: parsed.cards || [] }];
-    }
-    return [makeBoard("내 보드")];
+    return normalizeBoardsInput(JSON.parse(raw));
   } catch(e) { return [makeBoard("내 보드")]; }
 }
 let allBoards = loadAllBoards();
@@ -527,8 +535,7 @@ function saveDB(){
 window.__flashcards = {
   getState: () => ({ boards: allBoards }),
   replaceState: (newState) => {
-    const boards = (newState && Array.isArray(newState.boards) && newState.boards.length) ? newState.boards : [makeBoard("내 보드")];
-    allBoards = boards;
+    allBoards = normalizeBoardsInput(newState);
     if (!allBoards.some(b => b.id === activeBoardId)) activeBoardId = allBoards[0].id;
     db = allBoards.find(b => b.id === activeBoardId);
     localStorage.setItem(STORE_KEY, JSON.stringify({ boards: allBoards }));
