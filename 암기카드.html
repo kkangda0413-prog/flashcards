@@ -35,6 +35,7 @@
   v1.11.1 (2026-07-26) — [긴급 수정] 로그인 시 클라우드(Firestore)의 예전 형식 데이터를
     빈 보드로 잘못 읽어들이던 버그 수정. 로컬 로드와 클라우드 동기화가 동일한
     normalizeBoardsInput()을 공유하도록 통합하여 재발 방지
+  v1.11.2 (2026-07-26) — 상단 부제("직접 만들고, 스스로 채점하고...")와 볼드 버튼 옆 안내 문구 제거
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -231,7 +232,6 @@
     color: var(--ink-faint); pointer-events: none;
   }
   .answer-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .answer-toolbar-hint { font-size: 0.72rem; color: var(--ink-faint); }
 
   .history-section { margin-top: 14px; }
   .history-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -440,7 +440,6 @@
   <div class="topbar">
     <div>
       <h1>암기카드</h1>
-      <div class="sub">직접 만들고, 스스로 채점하고, 못 외운 것만 다시 — 인출 연습 도구</div>
     </div>
     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
       <div id="authArea"></div>
@@ -482,7 +481,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.11.1";
+const APP_VERSION = "1.11.2";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -1185,7 +1184,6 @@ function renderStudy(){
         ${editingAnswer
           ? `<div class="answer-toolbar">
                <button type="button" class="btn ghost sm" id="studyAnswerBoldBtn"><b>B</b></button>
-               <span class="answer-toolbar-hint">텍스트를 선택하고 누르면 굵게 표시돼요 (Ctrl+B)</span>
              </div>
              <div class="answer-input answer-editable" id="studyAnswerEdit" contenteditable="true" style="min-height:130px;">${markdownToEditableHtml(card.answer)}</div>`
           : `<div class="answer-text">${renderAnswerHtml(card.answer)}</div>`}
@@ -1341,7 +1339,6 @@ function renderManage(){
       <label class="field-label">모범답안 (인출 후 대조할 내용)</label>
       <div class="answer-toolbar">
         <button type="button" class="btn ghost sm" id="cardAnswerBoldBtn"><b>B</b></button>
-        <span class="answer-toolbar-hint">텍스트를 선택하고 누르면 굵게 표시돼요 (Ctrl+B)</span>
       </div>
       <div class="answer-input answer-editable" id="cardAnswerInput" contenteditable="true" data-placeholder="정답으로 확인할 내용을 입력하세요">${markdownToEditableHtml(formDraft.answer)}</div>
 
