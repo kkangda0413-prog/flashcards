@@ -49,6 +49,9 @@
     파일로 다운로드함. 다른 계정으로 카드를 옮기고 싶을 때 내 계정에서 내보내기 →
     다른 계정으로 로그인 후 가져오기 하면 됨(채점 상태·SRS 일정·인출 이력·이미지 등
     계정별 학습 기록은 포함되지 않고 제목/카테고리/모범답안/중요도만 옮겨짐)
+  v1.13.2 (2026-07-26) — [버그 수정] 내보내기/가져오기가 하위 카테고리(중첩 구조)를
+    무시하고 전부 최상위 카테고리로 평평하게 만들던 문제 수정. category 값을
+    "상위 > 하위 > ..." 전체 경로로 내보내고 가져올 때 그대로 복원해 계층이 유지됨
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -510,7 +513,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.13.1";
+const APP_VERSION = "1.13.2";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -617,11 +620,12 @@ function deleteBoard(boardId){
   else render();
 }
 
-// JSON 형식: { "name": "보드 이름", "categories": ["카테고리1", ...],
-//   "cards": [{ "title": "...", "category": "카테고리1", "answer": "..." }, ...] }
-// categories는 생략 가능(카드의 category 값들로 자동 생성됨).
+// JSON 형식: { "name": "보드 이름", "categories": ["상위 > 하위 > ...", ...],
+//   "cards": [{ "title": "...", "category": "상위 > 하위 > ...", "answer": "..." }, ...] }
+// category는 " > "로 구분된 전체 경로(하위 카테고리 표현), 최상위 카테고리라면
+// 구분자 없이 이름만 적으면 된다. categories는 생략 가능(카드의 category 값들로 자동 생성됨).
 // targetBoardId: "__new__"(또는 생략) 이면 새 보드를 만들고, 기존 보드 id를 주면
-// 그 보드에 카테고리·카드를 이어서 추가한다(이름이 같은 카테고리는 재사용).
+// 그 보드에 카테고리·카드를 이어서 추가한다(같은 경로의 카테고리는 재사용).
 function importBoardJSON(text, targetBoardId){
   let parsed;
   try { parsed = JSON.parse(text); }
@@ -638,28 +642,50 @@ function importBoardJSON(text, targetBoardId){
     isNewBoard = true;
   }
 
-  const catIdByName = {};
-  board.categories.filter(c => !c.parentId).forEach(c => { catIdByName[c.name] = c.id; });
+  // 기존(대상 보드의) 카테고리들을 전체 경로 문자열로 미리 색인해 재사용 가능하게 함
+  const catById = {};
+  board.categories.forEach(c => { catById[c.id] = c; });
+  function pathOf(catId){
+    const parts = [];
+    let cur = catById[catId];
+    while (cur) { parts.unshift(cur.name); cur = cur.parentId ? catById[cur.parentId] : null; }
+    return parts.join(" > ");
+  }
+  const catIdByPath = {};
+  board.categories.forEach(c => { catIdByPath[pathOf(c.id)] = c.id; });
+
   let maxKey = 0;
   board.categories.forEach(c => { maxKey = Math.max(maxKey, c.order != null ? c.order : (c.createdAt || 0)); });
   board.cards.forEach(c => { maxKey = Math.max(maxKey, c.order != null ? c.order : (c.createdAt || 0)); });
   let seq = maxKey + 1;
-  const ensureCategory = (name) => {
-    if (!name) return "";
-    if (!catIdByName[name]) {
-      const cat = { id: uid("cat"), name, parentId: null, createdAt: Date.now(), order: seq++ };
-      board.categories.push(cat);
-      catIdByName[name] = cat.id;
-    }
-    return catIdByName[name];
+
+  const ensureCategoryPath = (pathStr) => {
+    const segments = String(pathStr || "").split(">").map(s => s.trim()).filter(Boolean);
+    if (!segments.length) return "";
+    let parentId = null;
+    let acc = "";
+    let lastId = "";
+    segments.forEach(seg => {
+      acc = acc ? acc + " > " + seg : seg;
+      if (!catIdByPath[acc]) {
+        const cat = { id: uid("cat"), name: seg, parentId, createdAt: Date.now(), order: seq++ };
+        board.categories.push(cat);
+        catById[cat.id] = cat;
+        catIdByPath[acc] = cat.id;
+      }
+      lastId = catIdByPath[acc];
+      parentId = lastId;
+    });
+    return lastId;
   };
-  (parsed.categories || []).forEach(ensureCategory);
+
+  (parsed.categories || []).forEach(ensureCategoryPath);
   parsed.cards.forEach(c => {
     const now = Date.now();
     board.cards.push({
       id: uid("card"),
       title: c.title || "",
-      categoryId: ensureCategory(c.category || ""),
+      categoryId: ensureCategoryPath(c.category || ""),
       answer: c.answer || "",
       importance: c.importance || null,
       draft: "", status: null,
@@ -680,17 +706,23 @@ function importBoardJSON(text, targetBoardId){
 function exportBoardJSON(boardId){
   const board = allBoards.find(b => b.id === boardId);
   if (!board) return;
-  const catNameById = {};
-  board.categories.forEach(c => { catNameById[c.id] = c.name; });
+  const catById = {};
+  board.categories.forEach(c => { catById[c.id] = c; });
+  function pathOf(catId){
+    const parts = [];
+    let cur = catById[catId];
+    while (cur) { parts.unshift(cur.name); cur = cur.parentId ? catById[cur.parentId] : null; }
+    return parts.join(" > ");
+  }
   const orderedCats = [...board.categories].sort((a,b) => categorySortKey(a) - categorySortKey(b));
   const orderedCards = [...board.cards].sort((a,b) => cardSortKey(a) - cardSortKey(b));
 
   const data = {
     name: board.name,
-    categories: orderedCats.map(c => c.name),
+    categories: orderedCats.map(c => pathOf(c.id)),
     cards: orderedCards.map(c => ({
       title: c.title,
-      category: catNameById[c.categoryId] || "",
+      category: c.categoryId ? pathOf(c.categoryId) : "",
       answer: c.answer,
       importance: c.importance || undefined,
     })),
@@ -1855,7 +1887,7 @@ function renderBoardTabs(){
   const importBtnHtml = importingBoardOpen ? "" : `<button class="board-tab board-tab-add" id="importBoardBtn">📥 가져오기</button>`;
   const importPanelHtml = importingBoardOpen ? `
     <div class="import-board-panel">
-      <p>JSON을 붙여넣어 카드를 가져옵니다. 형식: {"name":"보드이름","cards":[{"title":"...","category":"...","answer":"..."}]}</p>
+      <p>JSON을 붙여넣어 카드를 가져옵니다. category는 "상위 > 하위 > ..." 형식의 전체 경로로 하위 카테고리도 표현할 수 있습니다. 형식: {"name":"보드이름","cards":[{"title":"...","category":"...","answer":"..."}]}</p>
       <label style="font-size:0.78rem; color:var(--ink-soft); display:block; margin-bottom:6px;">
         가져올 위치
         <select id="importTargetBoard" style="margin-left:6px; font-size:0.8rem; padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--ink);">
