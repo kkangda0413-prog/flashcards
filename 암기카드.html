@@ -38,6 +38,8 @@
   v1.11.2 (2026-07-26) — 상단 부제("직접 만들고, 스스로 채점하고...")와 볼드 버튼 옆 안내 문구 제거
   v1.12.0 (2026-07-26) — 보드 탭에 "📥 가져오기" 추가: JSON을 붙여넣어 카테고리·카드를 통째로
     새 보드로 가져올 수 있음. 형식: {"name":"...","cards":[{"title":"...","category":"...","answer":"..."}]}
+  v1.12.1 (2026-07-26) — 가져오기에 "가져올 위치" 선택 추가: 새 보드로 만들지, 기존 보드 중
+    하나에 이어서 추가할지 고를 수 있음. 기존 보드에 추가할 때는 같은 이름의 카테고리를 재사용함
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -494,7 +496,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.12.0";
+const APP_VERSION = "1.12.1";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -604,15 +606,30 @@ function deleteBoard(boardId){
 // JSON 형식: { "name": "보드 이름", "categories": ["카테고리1", ...],
 //   "cards": [{ "title": "...", "category": "카테고리1", "answer": "..." }, ...] }
 // categories는 생략 가능(카드의 category 값들로 자동 생성됨).
-function importBoardJSON(text){
+// targetBoardId: "__new__"(또는 생략) 이면 새 보드를 만들고, 기존 보드 id를 주면
+// 그 보드에 카테고리·카드를 이어서 추가한다(이름이 같은 카테고리는 재사용).
+function importBoardJSON(text, targetBoardId){
   let parsed;
   try { parsed = JSON.parse(text); }
   catch(e){ alert("JSON 형식이 올바르지 않습니다: " + e.message); return false; }
   if (!parsed || !Array.isArray(parsed.cards)) { alert('JSON에 "cards" 배열이 없습니다.'); return false; }
 
-  const board = makeBoard((parsed.name || "가져온 보드").trim());
+  let board, isNewBoard;
+  if (targetBoardId && targetBoardId !== "__new__") {
+    board = allBoards.find(b => b.id === targetBoardId);
+    if (!board) { alert("대상 보드를 찾을 수 없습니다."); return false; }
+    isNewBoard = false;
+  } else {
+    board = makeBoard((parsed.name || "가져온 보드").trim());
+    isNewBoard = true;
+  }
+
   const catIdByName = {};
-  let seq = 0;
+  board.categories.filter(c => !c.parentId).forEach(c => { catIdByName[c.name] = c.id; });
+  let maxKey = 0;
+  board.categories.forEach(c => { maxKey = Math.max(maxKey, c.order != null ? c.order : (c.createdAt || 0)); });
+  board.cards.forEach(c => { maxKey = Math.max(maxKey, c.order != null ? c.order : (c.createdAt || 0)); });
+  let seq = maxKey + 1;
   const ensureCategory = (name) => {
     if (!name) return "";
     if (!catIdByName[name]) {
@@ -636,7 +653,7 @@ function importBoardJSON(text){
     });
   });
 
-  allBoards.push(board);
+  if (isNewBoard) allBoards.push(board);
   saveDB();
   setActiveBoard(board.id);
   return true;
@@ -1742,7 +1759,14 @@ function renderBoardTabs(){
   const importBtnHtml = importingBoardOpen ? "" : `<button class="board-tab board-tab-add" id="importBoardBtn">📥 가져오기</button>`;
   const importPanelHtml = importingBoardOpen ? `
     <div class="import-board-panel">
-      <p>JSON을 붙여넣으면 새 보드로 통째로 가져옵니다. 형식: {"name":"보드이름","cards":[{"title":"...","category":"...","answer":"..."}]}</p>
+      <p>JSON을 붙여넣어 카드를 가져옵니다. 형식: {"name":"보드이름","cards":[{"title":"...","category":"...","answer":"..."}]}</p>
+      <label style="font-size:0.78rem; color:var(--ink-soft); display:block; margin-bottom:6px;">
+        가져올 위치
+        <select id="importTargetBoard" style="margin-left:6px; font-size:0.8rem; padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--ink);">
+          <option value="__new__">새 보드로 만들기</option>
+          ${allBoards.map(b => `<option value="${b.id}">${escapeAttr(b.name)}에 추가</option>`).join("")}
+        </select>
+      </label>
       <textarea id="importBoardInput" placeholder="여기에 JSON 붙여넣기"></textarea>
       <div class="row">
         <button class="btn primary sm" id="confirmImportBoardBtn">가져오기</button>
@@ -1798,8 +1822,10 @@ function renderBoardTabs(){
     const ta = document.getElementById("importBoardInput");
     const text = (ta.value || "").trim();
     if (!text) return;
+    const targetSel = document.getElementById("importTargetBoard");
+    const targetBoardId = targetSel ? targetSel.value : "__new__";
     importingBoardOpen = false;
-    if (!importBoardJSON(text)) importingBoardOpen = true;
+    if (!importBoardJSON(text, targetBoardId)) importingBoardOpen = true;
   };
   const cancelImportBtn = document.getElementById("cancelImportBoardBtn");
   if (cancelImportBtn) cancelImportBtn.onclick = () => { importingBoardOpen = false; render(); };
