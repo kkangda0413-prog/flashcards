@@ -45,6 +45,10 @@
     체크박스를 추가해 켜면 복습 예정 카드만, 꺼두면(기본값) 기존처럼 카테고리·중요도·필터
     기반 학습을 그대로 할 수 있음. 카드 제목 옆에 다음 복습 시점 배지, 전체 현황에 오늘
     복습 개수 표시 추가
+  v1.13.1 (2026-07-26) — 보드 탭에 "⬇ 내보내기" 추가: 보드를 가져오기와 같은 형식의 JSON
+    파일로 다운로드함. 다른 계정으로 카드를 옮기고 싶을 때 내 계정에서 내보내기 →
+    다른 계정으로 로그인 후 가져오기 하면 됨(채점 상태·SRS 일정·인출 이력·이미지 등
+    계정별 학습 기록은 포함되지 않고 제목/카테고리/모범답안/중요도만 옮겨짐)
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -506,7 +510,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.13.0";
+const APP_VERSION = "1.13.1";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -667,6 +671,40 @@ function importBoardJSON(text, targetBoardId){
   saveDB();
   setActiveBoard(board.id);
   return true;
+}
+
+// 가져오기와 짝을 이루는 내보내기: 다른 계정으로 보드를 옮기고 싶을 때
+// (내 계정 로그인 → 내보내기 → 로그아웃 → 다른 계정 로그인 → 가져오기) 사용.
+// 카드 내용(제목/카테고리/모범답안/중요도)만 담기고, 채점 상태·인출 이력·이미지는
+// 계정별 학습 기록이라 포함하지 않음.
+function exportBoardJSON(boardId){
+  const board = allBoards.find(b => b.id === boardId);
+  if (!board) return;
+  const catNameById = {};
+  board.categories.forEach(c => { catNameById[c.id] = c.name; });
+  const orderedCats = [...board.categories].sort((a,b) => categorySortKey(a) - categorySortKey(b));
+  const orderedCards = [...board.cards].sort((a,b) => cardSortKey(a) - cardSortKey(b));
+
+  const data = {
+    name: board.name,
+    categories: orderedCats.map(c => c.name),
+    cards: orderedCards.map(c => ({
+      title: c.title,
+      category: catNameById[c.categoryId] || "",
+      answer: c.answer,
+      importance: c.importance || undefined,
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = board.name.replace(/[\\/:*?"<>|]/g, "_") + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(s){
@@ -1803,7 +1841,7 @@ function renderBoardTabs(){
         <span class="board-tab-actions">
           ${editing
             ? `<button class="icon-btn" data-saveboard="${b.id}" title="저장">✓</button><button class="icon-btn" data-cancelboard="1" title="취소">✕</button>`
-            : `<button class="icon-btn" data-editboard="${b.id}" title="이름 수정">✎</button>${allBoards.length > 1 ? `<button class="icon-btn" data-delboard="${b.id}" title="삭제">🗑</button>` : ""}`}
+            : `<button class="icon-btn" data-editboard="${b.id}" title="이름 수정">✎</button><button class="icon-btn" data-exportboard="${b.id}" title="내보내기(JSON, 다른 계정으로 옮길 때)">⬇</button>${allBoards.length > 1 ? `<button class="icon-btn" data-delboard="${b.id}" title="삭제">🗑</button>` : ""}`}
         </span>
       </div>
     `;
@@ -1853,6 +1891,7 @@ function renderBoardTabs(){
     renameBoard(b.dataset.saveboard, name);
   });
   container.querySelectorAll("[data-delboard]").forEach(b => b.onclick = (e) => { e.stopPropagation(); deleteBoard(b.dataset.delboard); });
+  container.querySelectorAll("[data-exportboard]").forEach(b => b.onclick = (e) => { e.stopPropagation(); exportBoardJSON(b.dataset.exportboard); });
 
   const addBtn = document.getElementById("addBoardBtn");
   if (addBtn) addBtn.onclick = () => {
