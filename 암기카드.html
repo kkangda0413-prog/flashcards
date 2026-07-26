@@ -52,6 +52,11 @@
   v1.13.2 (2026-07-26) — [버그 수정] 내보내기/가져오기가 하위 카테고리(중첩 구조)를
     무시하고 전부 최상위 카테고리로 평평하게 만들던 문제 수정. category 값을
     "상위 > 하위 > ..." 전체 경로로 내보내고 가져올 때 그대로 복원해 계층이 유지됨
+  v1.13.3 (2026-07-26) — [버그 수정] 답안 입력 중 몇 초 후 커서(포커스)가 풀려 타이핑이
+    안 되던 문제 수정. 원인은 클라우드 동기화: 내가 방금 저장한 내용이 실시간 구독으로
+    그대로 되돌아오면서 화면 전체가 다시 그려져 입력칸이 새로 만들어졌기 때문. 이제
+    내가 마지막으로 저장한 시점(updatedAt)보다 새롭지 않은 스냅샷은 무시하도록 해서,
+    내 입력의 메아리로는 다시 그리지 않고 실제로 다른 기기에서 바뀐 경우에만 반영함
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -513,7 +518,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.13.2";
+const APP_VERSION = "1.13.3";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -2143,13 +2148,20 @@ render();
     let unsubSnapshot = null;
     let suppressPush = false;
     let pushTimer = null;
+    // 우리가 알고 있는 가장 최신 updatedAt. 내 쪽 push는 여기에 즉시(낙관적으로) 반영해두고,
+    // 스냅샷이 이 값보다 새 것이 아니면(=내가 방금 저장한 게 그대로 되돌아온 것이거나
+    // 오래된 데이터) replaceState/render를 건너뛴다 — 안 그러면 입력 중 화면이
+    // 통째로 다시 그려지며 인풋 포커스(커서)가 날아가는 문제가 생긴다.
+    let lastKnownUpdatedAt = 0;
 
     window.__flashcards.onLocalChange = (currentDB) => {
       const user = auth.currentUser;
       if (!user || suppressPush) return;
       clearTimeout(pushTimer);
       pushTimer = setTimeout(() => {
-        setDoc(doc(fsdb, "flashcards", user.uid), { db: currentDB, updatedAt: Date.now() })
+        const ts = Date.now();
+        lastKnownUpdatedAt = ts;
+        setDoc(doc(fsdb, "flashcards", user.uid), { db: currentDB, updatedAt: ts })
           .catch(err => console.error("동기화 저장 실패", err));
       }, 700);
     };
@@ -2163,16 +2175,21 @@ render();
       const snap = await getDoc(ref);
       suppressPush = true;
       if (snap.exists()) {
+        lastKnownUpdatedAt = snap.data().updatedAt || Date.now();
         window.__flashcards.replaceState(snap.data().db || {});
       } else {
-        await setDoc(ref, { db: window.__flashcards.getState(), updatedAt: Date.now() });
+        lastKnownUpdatedAt = Date.now();
+        await setDoc(ref, { db: window.__flashcards.getState(), updatedAt: lastKnownUpdatedAt });
       }
       suppressPush = false;
 
       unsubSnapshot = onSnapshot(ref, (snap) => {
         if (!snap.exists()) return;
+        const data = snap.data();
+        if ((data.updatedAt || 0) <= lastKnownUpdatedAt) return;
+        lastKnownUpdatedAt = data.updatedAt;
         suppressPush = true;
-        window.__flashcards.replaceState(snap.data().db || {});
+        window.__flashcards.replaceState(data.db || {});
         suppressPush = false;
       });
     });
