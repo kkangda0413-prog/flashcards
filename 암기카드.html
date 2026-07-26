@@ -28,6 +28,7 @@
     로그인하지 않았거나 Storage 미설정 시에는 기존처럼 이 기기에만 저장됨
   v1.10.2 (2026-07-26) — Firebase Storage(유료 Blaze 필요)를 Cloudinary 무료 플랜(카드 등록 불필요)으로
     교체. 답변 이미지는 이제 Cloudinary에 업로드되고 Firestore에는 URL만 저장됨
+  v1.10.3 (2026-07-26) — 실제 Cloudinary 계정(cloud name: l7rv6jby) 설정값 반영
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -445,7 +446,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.10.2";
+const APP_VERSION = "1.10.3";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -1663,8 +1664,8 @@ render();
 
   // ↓↓↓ Cloudinary 대시보드에서 확인한 값으로 이 객체를 교체하세요 (답변 이미지 저장용, 무료) ↓↓↓
   const cloudinaryConfig = {
-    cloudName: "YOUR_CLOUD_NAME",
-    uploadPreset: "YOUR_UNSIGNED_UPLOAD_PRESET",
+    cloudName: "l7rv6jby",
+    uploadPreset: "flashcards_unsigned",
   };
   // ↑↑↑ 여기까지 ↑↑↑
 
