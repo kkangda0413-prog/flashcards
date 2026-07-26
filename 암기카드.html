@@ -26,6 +26,8 @@
   v1.10.1 (2026-07-26) — 답변 이미지를 Firebase Storage에 업로드하고 Firestore에는 URL만
     저장하도록 변경 (Firestore 문서당 1MB 제한 회피, 훨씬 많은 사진을 클라우드 동기화 가능).
     로그인하지 않았거나 Storage 미설정 시에는 기존처럼 이 기기에만 저장됨
+  v1.10.2 (2026-07-26) — Firebase Storage(유료 Blaze 필요)를 Cloudinary 무료 플랜(카드 등록 불필요)으로
+    교체. 답변 이미지는 이제 Cloudinary에 업로드되고 Firestore에는 URL만 저장됨
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -443,7 +445,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.10.1";
+const APP_VERSION = "1.10.2";
 const STORE_KEY = "diy-flashcards-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
 
@@ -1139,7 +1141,7 @@ function renderStudy(){
       submitBtn.disabled = true;
       submitBtn.textContent = "업로드 중…";
       try {
-        const result = await window.__flashcards.uploadImage(pendingImageBlob, `${card.id}/${histId}.jpg`);
+        const result = await window.__flashcards.uploadImage(pendingImageBlob);
         imageUrl = result.url;
         imagePath = result.path;
       } catch(err) {
@@ -1608,30 +1610,37 @@ render();
          }
        }
 
-  4. 왼쪽 메뉴 Build > Storage 에서 저장소를 만드세요(프로덕션 모드). 답변 이미지가 여기 저장됩니다
-     (Firestore 문서 안에 이미지를 직접 넣지 않고 URL만 저장 — Firestore 문서당 1MB 제한을 피하기 위함).
-     "규칙" 탭에서 아래 규칙으로 바꾸고 게시하세요:
-
-       rules_version = '2';
-       service firebase.storage {
-         match /b/{bucket}/o {
-           match /flashcards/{uid}/{allPaths=**} {
-             allow read, write: if request.auth != null && request.auth.uid == uid;
-           }
-         }
-       }
-
-  5. 프로젝트 설정(톱니바퀴) > 일반 > "내 앱"에서 웹 앱을 추가(</> 아이콘)하면
+  4. 프로젝트 설정(톱니바퀴) > 일반 > "내 앱"에서 웹 앱을 추가(</> 아이콘)하면
      firebaseConfig 객체가 나옵니다. 그 값을 아래 CONFIG 자리에 그대로 붙여넣으세요.
-  6. Authentication > Settings > 승인된 도메인에, 이 파일을 올릴 GitHub Pages 도메인
+  5. Authentication > Settings > 승인된 도메인에, 이 파일을 올릴 GitHub Pages 도메인
      (예: your-id.github.io)을 추가하세요. 로컬 file:// 로 열 때는 로그인이 되지 않을 수
      있으니, 실제 로그인 테스트는 GitHub Pages에 올린 뒤 하세요.
-  7. 이 파일을 GitHub 저장소에 올리고 Settings > Pages 에서 배포하면,
-     그 주소로 어느 기기에서든 접속해 Google로 로그인만 하면 카드와 채점 기록(이미지 포함)이
+  6. 이 파일을 GitHub 저장소에 올리고 Settings > Pages 에서 배포하면,
+     그 주소로 어느 기기에서든 접속해 Google로 로그인만 하면 카드와 채점 기록(텍스트)이
      자동으로 동기화됩니다.
 
-  참고: Storage를 아직 설정하지 않았거나 로그인하지 않은 상태에서 이미지를 제출하면,
-  이미지는 이 기기의 localStorage에만 (base64로) 저장되고 클라우드에는 동기화되지 않습니다.
+  ----------------------------------------------------------------------------
+  답변 이미지 저장: Cloudinary (무료, 카드 등록 불필요)
+  ----------------------------------------------------------------------------
+  Firebase Storage는 이제 유료(Blaze) 요금제가 있어야 켤 수 있어서, 이미지는
+  카드 등록이 필요 없는 무료 이미지 호스팅 서비스 Cloudinary를 통해 저장합니다.
+  (Firestore 문서에는 이미지 URL만 저장되어 1MB 문서 제한과 무관합니다.)
+
+  1. https://cloudinary.com 에서 무료 계정을 만드세요 (신용카드 필요 없음).
+  2. 대시보드 상단에서 "Cloud Name"을 확인하세요.
+  3. Settings(톱니바퀴) > Upload > "Upload presets" > "Add upload preset"
+     - Signing Mode를 "Unsigned"로 설정
+     - 이름을 정하고 저장 (예: "flashcards_unsigned")
+  4. 아래 CLOUDINARY CONFIG 자리에 Cloud Name과 방금 만든 preset 이름을 넣으세요.
+
+  주의: Unsigned 업로드는 API 비밀키 없이 브라우저에서 바로 파일을 올리는 방식이라
+  무료 개인용 앱에 적합하지만, 이 preset을 아는 사람은 누구나 이 계정으로 이미지를
+  올릴 수 있습니다. 이 앱을 본인만 쓴다면 문제 없습니다.
+  또한 Unsigned 방식은 삭제 API를 지원하지 않아, 앱에서 답변 기록을 삭제해도
+  Cloudinary에 올라간 이미지 파일 자체는 남아있습니다(무료 25GB 안에서는 무해함).
+
+  설정 전(또는 로그인하지 않은 상태)에 이미지를 제출하면, 이미지는 이 기기의
+  localStorage에만 (base64로) 저장되고 클라우드에는 동기화되지 않습니다.
   ============================================================================
 -->
 <script type="module">
@@ -1640,8 +1649,6 @@ render();
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject }
-    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
   // ↓↓↓ Firebase 콘솔에서 복사한 값으로 이 객체를 교체하세요 ↓↓↓
   const firebaseConfig = {
@@ -1654,11 +1661,19 @@ render();
   };
   // ↑↑↑ 여기까지 ↑↑↑
 
+  // ↓↓↓ Cloudinary 대시보드에서 확인한 값으로 이 객체를 교체하세요 (답변 이미지 저장용, 무료) ↓↓↓
+  const cloudinaryConfig = {
+    cloudName: "YOUR_CLOUD_NAME",
+    uploadPreset: "YOUR_UNSIGNED_UPLOAD_PRESET",
+  };
+  // ↑↑↑ 여기까지 ↑↑↑
+
   const isConfigured = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("YOUR_");
+  const isCloudinaryConfigured = cloudinaryConfig.cloudName && !cloudinaryConfig.cloudName.startsWith("YOUR_");
   const authArea = document.getElementById("authArea");
   const loginGate = document.getElementById("loginGate");
   const appEl = document.querySelector(".app");
-  let auth, fsdb, storage;
+  let auth, fsdb;
 
   function setGate(show){
     loginGate.style.display = show ? "flex" : "none";
@@ -1697,21 +1712,24 @@ render();
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     fsdb = getFirestore(app);
-    storage = getStorage(app);
 
-    window.__flashcards.uploadImage = async (blob, path) => {
-      const user = auth.currentUser;
-      if (!user) throw new Error("로그인이 필요합니다.");
-      const fullPath = `flashcards/${user.uid}/${path}`;
-      const r = storageRef(storage, fullPath);
-      await uploadBytes(r, blob, { contentType: blob.type || "image/jpeg" });
-      const url = await getDownloadURL(r);
-      return { url, path: fullPath };
-    };
-    window.__flashcards.deleteImage = async (path) => {
-      try { await deleteObject(storageRef(storage, path)); }
-      catch(err) { console.warn("이미지 삭제 실패", err); }
-    };
+    if (isCloudinaryConfigured) {
+      window.__flashcards.uploadImage = async (blob) => {
+        const form = new FormData();
+        form.append("file", blob);
+        form.append("upload_preset", cloudinaryConfig.uploadPreset);
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/image/upload`, {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) throw new Error("Cloudinary 업로드 실패 (" + res.status + ")");
+        const data = await res.json();
+        return { url: data.secure_url, path: data.public_id };
+      };
+      // Unsigned Cloudinary 업로드는 API 비밀키 없이 동작하는 대신 삭제 API를 지원하지 않음.
+      // 답변 기록을 지우면 앱에서는 사라지지만 Cloudinary에 올라간 파일 자체는 남아있음(무료 25GB 안에서는 무해).
+      window.__flashcards.deleteImage = async () => {};
+    }
 
     let unsubSnapshot = null;
     let suppressPush = false;
