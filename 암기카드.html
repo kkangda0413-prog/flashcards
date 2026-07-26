@@ -36,6 +36,8 @@
     빈 보드로 잘못 읽어들이던 버그 수정. 로컬 로드와 클라우드 동기화가 동일한
     normalizeBoardsInput()을 공유하도록 통합하여 재발 방지
   v1.11.2 (2026-07-26) — 상단 부제("직접 만들고, 스스로 채점하고...")와 볼드 버튼 옆 안내 문구 제거
+  v1.12.0 (2026-07-26) — 보드 탭에 "📥 가져오기" 추가: JSON을 붙여넣어 카테고리·카드를 통째로
+    새 보드로 가져올 수 있음. 형식: {"name":"...","cards":[{"title":"...","category":"...","answer":"..."}]}
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -190,6 +192,17 @@
     font-size: 0.84rem; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
     background: var(--surface-2); color: var(--ink);
   }
+  .import-board-panel {
+    width: 100%; margin-top: 8px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .import-board-panel p { margin: 0 0 8px; font-size: 0.78rem; color: var(--ink-faint); }
+  .import-board-panel textarea {
+    width: 100%; min-height: 130px; font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.5;
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--ink); resize: vertical;
+  }
+  .import-board-panel .row { display: flex; gap: 8px; margin-top: 8px; }
 
   .mode-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .mode-tabs { display: flex; gap: 6px; background: var(--surface-2); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
@@ -481,7 +494,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.11.2";
+const APP_VERSION = "1.12.0";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -586,6 +599,47 @@ function deleteBoard(boardId){
   saveDB();
   if (activeBoardId === boardId) setActiveBoard(allBoards[0].id);
   else render();
+}
+
+// JSON 형식: { "name": "보드 이름", "categories": ["카테고리1", ...],
+//   "cards": [{ "title": "...", "category": "카테고리1", "answer": "..." }, ...] }
+// categories는 생략 가능(카드의 category 값들로 자동 생성됨).
+function importBoardJSON(text){
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch(e){ alert("JSON 형식이 올바르지 않습니다: " + e.message); return false; }
+  if (!parsed || !Array.isArray(parsed.cards)) { alert('JSON에 "cards" 배열이 없습니다.'); return false; }
+
+  const board = makeBoard((parsed.name || "가져온 보드").trim());
+  const catIdByName = {};
+  let seq = 0;
+  const ensureCategory = (name) => {
+    if (!name) return "";
+    if (!catIdByName[name]) {
+      const cat = { id: uid("cat"), name, parentId: null, createdAt: Date.now(), order: seq++ };
+      board.categories.push(cat);
+      catIdByName[name] = cat.id;
+    }
+    return catIdByName[name];
+  };
+  (parsed.categories || []).forEach(ensureCategory);
+  parsed.cards.forEach(c => {
+    const now = Date.now();
+    board.cards.push({
+      id: uid("card"),
+      title: c.title || "",
+      categoryId: ensureCategory(c.category || ""),
+      answer: c.answer || "",
+      importance: c.importance || null,
+      draft: "", status: null,
+      createdAt: now, updatedAt: now, order: seq++,
+    });
+  });
+
+  allBoards.push(board);
+  saveDB();
+  setActiveBoard(board.id);
+  return true;
 }
 
 function escapeHtml(s){
@@ -783,6 +837,7 @@ let showInlineNewCat = false;
 let formDraft = { title: "", categoryId: "", answer: "", importance: 3 };
 let editingBoardId = null;  // board-tab rename
 let addingBoardOpen = false;
+let importingBoardOpen = false;
 
 // ---------- study scope (다중 카테고리 선택 + 셔플 + 중요도) ----------
 function loadStudyScope(){
@@ -1684,8 +1739,18 @@ function renderBoardTabs(){
       <button class="btn primary sm" id="confirmAddBoardBtn">추가</button>
       <button class="btn ghost sm" id="cancelAddBoardBtn">취소</button>
     </div>` : `<button class="board-tab board-tab-add" id="addBoardBtn">+ 새 보드</button>`;
+  const importBtnHtml = importingBoardOpen ? "" : `<button class="board-tab board-tab-add" id="importBoardBtn">📥 가져오기</button>`;
+  const importPanelHtml = importingBoardOpen ? `
+    <div class="import-board-panel">
+      <p>JSON을 붙여넣으면 새 보드로 통째로 가져옵니다. 형식: {"name":"보드이름","cards":[{"title":"...","category":"...","answer":"..."}]}</p>
+      <textarea id="importBoardInput" placeholder="여기에 JSON 붙여넣기"></textarea>
+      <div class="row">
+        <button class="btn primary sm" id="confirmImportBoardBtn">가져오기</button>
+        <button class="btn ghost sm" id="cancelImportBoardBtn">취소</button>
+      </div>
+    </div>` : "";
 
-  container.innerHTML = tabsHtml + addHtml;
+  container.innerHTML = tabsHtml + addHtml + importBtnHtml + importPanelHtml;
 
   container.querySelectorAll(".board-tab[data-boardid]").forEach(tab => {
     tab.addEventListener("click", (e) => {
@@ -1722,6 +1787,22 @@ function renderBoardTabs(){
   };
   const cancelBtn = document.getElementById("cancelAddBoardBtn");
   if (cancelBtn) cancelBtn.onclick = () => { addingBoardOpen = false; render(); };
+
+  const importBtn = document.getElementById("importBoardBtn");
+  if (importBtn) importBtn.onclick = () => {
+    importingBoardOpen = true; render();
+    const ta = document.getElementById("importBoardInput"); if (ta) ta.focus();
+  };
+  const confirmImportBtn = document.getElementById("confirmImportBoardBtn");
+  if (confirmImportBtn) confirmImportBtn.onclick = () => {
+    const ta = document.getElementById("importBoardInput");
+    const text = (ta.value || "").trim();
+    if (!text) return;
+    importingBoardOpen = false;
+    if (!importBoardJSON(text)) importingBoardOpen = true;
+  };
+  const cancelImportBtn = document.getElementById("cancelImportBoardBtn");
+  if (cancelImportBtn) cancelImportBtn.onclick = () => { importingBoardOpen = false; render(); };
 }
 
 // ---------- orchestration ----------
