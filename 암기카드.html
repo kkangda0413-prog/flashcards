@@ -40,6 +40,11 @@
     새 보드로 가져올 수 있음. 형식: {"name":"...","cards":[{"title":"...","category":"...","answer":"..."}]}
   v1.12.1 (2026-07-26) — 가져오기에 "가져올 위치" 선택 추가: 새 보드로 만들지, 기존 보드 중
     하나에 이어서 추가할지 고를 수 있음. 기존 보드에 추가할 때는 같은 이름의 카테고리를 재사용함
+  v1.13.0 (2026-07-26) — SRS(간격 반복) 알고리즘 도입 (SM-2 기반). X/△/○ 채점 시 자동으로
+    다음 복습일·간격·용이도를 계산해 카드에 저장. 학습 범위 패널에 "🗓 오늘 복습할 카드만"
+    체크박스를 추가해 켜면 복습 예정 카드만, 꺼두면(기본값) 기존처럼 카테고리·중요도·필터
+    기반 학습을 그대로 할 수 있음. 카드 제목 옆에 다음 복습 시점 배지, 전체 현황에 오늘
+    복습 개수 표시 추가
 -->
 <title>암기카드 — 셀프 인출 연습</title>
 <style>
@@ -316,6 +321,11 @@
   @media (prefers-color-scheme: dark) { .study-stars { color: #E3B84A; } }
   :root[data-theme="dark"] .study-stars { color: #E3B84A; }
   :root[data-theme="light"] .study-stars { color: #C9971F; }
+  .srs-badge {
+    font-size: 0.72rem; padding: 3px 9px; border-radius: 999px; font-family: var(--font-mono);
+    background: var(--surface-2); color: var(--ink-faint); border: 1px solid var(--border);
+  }
+  .srs-badge.due { background: var(--green-soft); color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
   .star-picker { display: flex; gap: 2px; }
   .star-picker .star-btn {
     border: none; background: transparent; cursor: pointer; font-size: 1.3rem; padding: 2px 3px;
@@ -496,7 +506,7 @@
 </div>
 
 <script>
-const APP_VERSION = "1.12.1";
+const APP_VERSION = "1.13.0";
 const STORE_KEY = "diy-flashcards-v1";
 const ACTIVE_BOARD_KEY = "diy-flashcards-activeboard-v1";
 const SCOPE_KEY = "diy-flashcards-studyscope-v1";
@@ -576,7 +586,7 @@ function setActiveBoard(boardId){
   historyOpen = false;
   pendingImage = null; pendingImageBlob = null; pendingImageCardId = null;
   shuffleOrder = null;
-  studyScope = { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]) };
+  studyScope = { all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]), dueOnly: false };
   saveStudyScope();
   currentTab = "study";
   render();
@@ -810,6 +820,37 @@ function cardsIn(catId){
 function cardSortKey(card){ return card.order != null ? card.order : (card.createdAt || 0); }
 function cardImportance(card){ return card.importance != null ? card.importance : 3; }
 function starsHtml(n){ return "★".repeat(n) + "☆".repeat(5 - n); }
+
+// ---------- SRS (간격 반복, SM-2 기반) ----------
+// X(다시)/△(애매)/○(완벽) 3단계 채점을 SM-2의 품질 점수에 매핑해서 사용한다.
+const DAY_MS = 24 * 60 * 60 * 1000;
+function cardSrs(card){
+  return card.srs || { interval: 0, ease: 2.5, dueDate: 0, reps: 0 };
+}
+function cardIsDue(card){ return cardSrs(card).dueDate <= Date.now(); }
+function applySrsGrade(card, grade){
+  const srs = { ...cardSrs(card) };
+  const quality = grade === "X" ? 2 : grade === "△" ? 3 : 5; // O
+  if (quality < 3) {
+    srs.reps = 0;
+    srs.interval = 1;
+  } else {
+    if (srs.reps === 0) srs.interval = 1;
+    else if (srs.reps === 1) srs.interval = 6;
+    else srs.interval = Math.round(srs.interval * srs.ease);
+    srs.reps += 1;
+  }
+  srs.ease = Math.max(1.3, srs.ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+  srs.dueDate = Date.now() + srs.interval * DAY_MS;
+  srs.lastReviewedAt = Date.now();
+  card.srs = srs;
+}
+function srsBadgeText(card){
+  if (!card.srs) return null;
+  const daysLeft = Math.ceil((cardSrs(card).dueDate - Date.now()) / DAY_MS);
+  if (daysLeft <= 0) return "복습 예정";
+  return `다음 복습 ${daysLeft}일 후`;
+}
 function cardsInCategorySorted(catId){
   return db.cards.filter(c => c.categoryId === catId).sort((a,b) => cardSortKey(a) - cardSortKey(b));
 }
@@ -858,7 +899,7 @@ let importingBoardOpen = false;
 
 // ---------- study scope (다중 카테고리 선택 + 셔플 + 중요도) ----------
 function loadStudyScope(){
-  const fallback = () => ({ all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]) });
+  const fallback = () => ({ all: true, catIds: new Set(), includeUncategorized: true, shuffle: false, importance: new Set([1,2,3,4,5]), dueOnly: false });
   try {
     const raw = localStorage.getItem(SCOPE_KEY);
     if (!raw) return fallback();
@@ -869,6 +910,7 @@ function loadStudyScope(){
       includeUncategorized: p.includeUncategorized !== false,
       shuffle: !!p.shuffle,
       importance: new Set(Array.isArray(p.importance) && p.importance.length ? p.importance : [1,2,3,4,5]),
+      dueOnly: !!p.dueOnly,
     };
   } catch(e) { return fallback(); }
 }
@@ -879,6 +921,7 @@ function saveStudyScope(){
     includeUncategorized: studyScope.includeUncategorized,
     shuffle: studyScope.shuffle,
     importance: Array.from(studyScope.importance),
+    dueOnly: studyScope.dueOnly,
   }));
 }
 let studyScope = loadStudyScope();
@@ -946,8 +989,10 @@ function currentStudyQueue(){
   const idToCard = new Map(db.cards.map(c => [c.id, c]));
   return orderedIds.map(id => idToCard.get(id)).filter(Boolean)
     .filter(c => matchesFilter(c, currentFilter))
-    .filter(c => studyScope.importance.has(cardImportance(c)));
+    .filter(c => studyScope.importance.has(cardImportance(c)))
+    .filter(c => !studyScope.dueOnly || cardIsDue(c));
 }
+function dueCardCount(){ return db.cards.filter(cardIsDue).length; }
 function scopeSummaryText(){
   const count = studyBaseCardIds().length;
   let label;
@@ -959,7 +1004,8 @@ function scopeSummaryText(){
     label = names.length ? names.join(", ") : "(선택 없음)";
   }
   const impLabel = studyScope.importance.size === 5 ? "" : ` · ★${Array.from(studyScope.importance).sort().join(",")}`;
-  return `${escapeHtml(label)} · ${count}장 · ${studyScope.shuffle ? "🔀 랜덤 순서" : "순서대로"}${impLabel}`;
+  const dueLabel = studyScope.dueOnly ? ` · 🗓 오늘 복습 ${dueCardCount()}장` : "";
+  return `${escapeHtml(label)} · ${count}장 · ${studyScope.shuffle ? "🔀 랜덤 순서" : "순서대로"}${impLabel}${dueLabel}`;
 }
 
 // ---------- sidebar ----------
@@ -1111,6 +1157,9 @@ function scopePanelHtml(){
           <label class="scope-shuffle"><input type="checkbox" id="scopeShuffleCheck" ${studyScope.shuffle ? "checked" : ""}/> 🔀 랜덤 순서</label>
           ${studyScope.shuffle ? `<button class="btn ghost sm" id="scopeReshuffleBtn">다시 섞기</button>` : ""}
         </div>
+        <div class="scope-actions">
+          <label class="scope-shuffle"><input type="checkbox" id="scopeDueOnlyCheck" ${studyScope.dueOnly ? "checked" : ""}/> 🗓 오늘 복습할 카드만 (${dueCardCount()}장)</label>
+        </div>
         <div class="scope-importance">
           <span class="scope-importance-label">중요도</span>
           ${[1,2,3,4,5].map(n => `<button type="button" class="importance-toggle-btn ${studyScope.importance.has(n) ? "active" : ""}" data-imptoggle="${n}">★${n}</button>`).join("")}
@@ -1147,6 +1196,11 @@ function wireScopePanel(view){
   if (reshuffleBtn) reshuffleBtn.onclick = () => {
     shuffleOrder = shuffleArray(studyBaseCardIds());
     studyIndex = 0; renderStudy();
+  };
+  const dueOnlyCheck = document.getElementById("scopeDueOnlyCheck");
+  if (dueOnlyCheck) dueOnlyCheck.onchange = () => {
+    studyScope.dueOnly = dueOnlyCheck.checked;
+    saveStudyScope(); studyIndex = 0; renderStudy();
   };
   const uncatCheck = document.getElementById("scopeUncatCheck");
   if (uncatCheck) uncatCheck.onchange = () => {
@@ -1207,6 +1261,7 @@ function renderStudy(){
           <div class="badge-row" style="margin-top:4px;">
             <span style="font-family:var(--font-serif);font-weight:700;font-size:1.15rem;">${escapeHtml(card.title)}</span>
             <span class="study-stars">${starsHtml(cardImportance(card))}</span>
+            ${srsBadgeText(card) ? `<span class="srs-badge${cardIsDue(card) ? " due" : ""}">${srsBadgeText(card)}</span>` : ""}
           </div>
         </div>
         <span class="status-badge status-${card.status || "none"}">${statusText(card.status)}</span>
@@ -1367,8 +1422,10 @@ function renderStudy(){
   view.querySelectorAll(".grade-btn").forEach(b => {
     if (card.status === b.dataset.g) b.classList.add("active");
     b.onclick = () => {
-      card.status = card.status === b.dataset.g ? null : b.dataset.g;
+      const newStatus = card.status === b.dataset.g ? null : b.dataset.g;
+      card.status = newStatus;
       card.updatedAt = Date.now();
+      if (newStatus) applySrsGrade(card, newStatus);
       saveDB(); render();
     };
   });
@@ -1531,6 +1588,7 @@ function renderDash(){
       <span class="dash-chip"><i class="dot-△"></i>애매 ${counts["△"]}</span>
       <span class="dash-chip"><i class="dot-X"></i>다시 ${counts.X}</span>
       <span class="dash-chip"><i class="dot-none"></i>미채점 ${counts.unrated}</span>
+      <span class="dash-chip">🗓 오늘 복습 ${dueCardCount()}</span>
     </div>
   `;
 
